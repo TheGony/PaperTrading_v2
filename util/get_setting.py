@@ -4,7 +4,7 @@ import json
 
 def get_setting(key, default=''):
 	try:
-		script_dir = os.path.dirname(os.path.abspath(__file__))
+		script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 		settings_path = os.path.join(script_dir, 'settings.json')
 		
 		with open(settings_path, 'r', encoding='utf-8') as f:
@@ -34,7 +34,7 @@ def cached_setting(key, default=''):
 def update_setting(key, value):
 	"""settings.json 파일의 특정 키 값을 업데이트합니다."""
 	try:
-		script_dir = os.path.dirname(os.path.abspath(__file__))
+		script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 		settings_path = os.path.join(script_dir, 'settings.json')
 		
 		with open(settings_path, 'r', encoding='utf-8') as f:

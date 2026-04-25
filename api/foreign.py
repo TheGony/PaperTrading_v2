@@ -1,8 +1,8 @@
 import requests
 import json
 import time
-from config import host_url
-from logger import get_logger
+from util.config import host_url
+from util.logger import get_logger
 
 # 외국인기관매매상위요청 (ka90009)
 # 당일 외인/기관 순매수 상위 종목코드 set 반환

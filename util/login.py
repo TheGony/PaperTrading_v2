@@ -1,6 +1,6 @@
 import requests
 import json
-from config import app_key, app_secret, host_url
+from util.config import app_key, app_secret, host_url
 
 # 접근토큰 발급
 def fn_au10001():

@@ -1,8 +1,8 @@
 import requests
 import json
 import time
-from config import host_url
-from logger import get_logger
+from util.config import host_url
+from util.logger import get_logger
 
 # 거래량급증요청 (ka10023)
 # 전일 대비 거래량이 급증하면서 상승 중인 종목 반환

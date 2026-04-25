@@ -1,8 +1,8 @@
 import requests
 import json
 import time
-from config import host_url
-from logger import get_logger
+from util.config import host_url
+from util.logger import get_logger
 
 # 주식분봉차트조회요청 - 1분봉 기준 여러 봉의 종가 리스트 반환 (최신순)
 def fn_ka10080(stk_cd, count=30, cont_yn='N', next_key='', token=None):

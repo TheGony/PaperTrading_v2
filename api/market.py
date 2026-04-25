@@ -1,8 +1,8 @@
 import requests
 import json
 import time
-from config import host_url
-from logger import get_logger
+from util.config import host_url
+from util.logger import get_logger
 
 
 # ── 주식기본정보요청 (ka10001) ─────────────────────────────────────────

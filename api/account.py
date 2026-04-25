@@ -2,8 +2,8 @@ import requests
 import json
 import datetime
 import pandas as pd
-from config import host_url
-from logger import get_logger
+from util.config import host_url
+from util.logger import get_logger
 
 # 계좌평가현황요청 (kt00004)
 def fn_kt00004(print_df=False, cont_yn='N', next_key='', token=None):

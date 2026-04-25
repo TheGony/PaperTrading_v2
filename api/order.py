@@ -1,7 +1,7 @@
 import requests
 import json
-from config import host_url
-from logger import get_logger
+from util.config import host_url
+from util.logger import get_logger
 
 # 주식 매수주문 (kt10000) - 시장가
 def fn_kt10000(stk_cd, ord_qty, ord_uv, cont_yn='N', next_key='', token=None):

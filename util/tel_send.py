@@ -1,7 +1,7 @@
 import requests
 import json
-from get_setting import get_setting
-from config import telegram_token, telegram_chat_id
+from util.get_setting import get_setting
+from util.config import telegram_token, telegram_chat_id
 
 def tel_send(message):
 	url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"

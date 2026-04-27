@@ -2,6 +2,7 @@ import asyncio
 from api.chart import fn_ka10080
 from api.ranking import fn_ka10023, fn_ka10032
 from api.foreign import fn_ka90009
+from api.account import fn_kt00004
 from util.market_hour import MarketHour
 from util.get_setting import get_setting
 from util.tel_send import tel_send
@@ -32,6 +33,22 @@ class StockSelectorMixin:
 		return ', '.join(
 			f"{self.selected_stocks_names.get(c, c)}({c})" for c in stock_codes
 		)
+
+	async def _get_exclusion_set(self):
+		"""보유 종목 + 당일 2회 이상 손절 종목 코드 set 반환"""
+		excluded = {cd for cd, cnt in self.daily_loss_count.items() if cnt >= 2}
+		try:
+			my_stk, _, _ = await asyncio.get_event_loop().run_in_executor(
+				None, fn_kt00004, False, 'N', '', self.token
+			)
+			if my_stk:
+				for s in my_stk:
+					cd = s.get('stk_cd', '').replace('A', '').strip()
+					if cd:
+						excluded.add(cd)
+		except Exception:
+			pass
+		return excluded
 
 	async def _fetch_stocks_by_phase(self, phase):
 		"""phase에 따라 종목 후보 리스트를 반환
@@ -210,6 +227,13 @@ class StockSelectorMixin:
 			tel_send(f"⚠️ [{self._phase_name(phase)}] 종목 선정 실패 - 다음 갱신 주기에 재시도합니다")
 			return False
 
+		exclusion_set = await self._get_exclusion_set()
+		if exclusion_set:
+			before = len(ranked_stocks)
+			ranked_stocks = [s for s in ranked_stocks if s['stk_cd'] not in exclusion_set]
+			if len(ranked_stocks) < before:
+				get_logger().info(f'[종목선정] 제외: {exclusion_set} ({before}→{len(ranked_stocks)}개)')
+
 		self.selected_stocks = [s['stk_cd'] for s in ranked_stocks]
 		self.selected_stocks_names = {s['stk_cd']: s.get('stk_nm', s['stk_cd']) for s in ranked_stocks}
 		self.selected_stocks_meta = {
@@ -244,6 +268,13 @@ class StockSelectorMixin:
 			if not ranked_stocks:
 				tel_send(f"⚠️ [{self._phase_name(phase)}] 종목 갱신 실패 - 기존 종목 유지")
 				return
+
+			exclusion_set = await self._get_exclusion_set()
+			if exclusion_set:
+				before = len(ranked_stocks)
+				ranked_stocks = [s for s in ranked_stocks if s['stk_cd'] not in exclusion_set]
+				if len(ranked_stocks) < before:
+					get_logger().info(f'[종목갱신] 제외: {exclusion_set} ({before}→{len(ranked_stocks)}개)')
 
 			new_stocks = [s['stk_cd'] for s in ranked_stocks]
 			new_names  = {s['stk_cd']: s.get('stk_nm', s['stk_cd']) for s in ranked_stocks}

@@ -124,8 +124,13 @@ class ExitMixin:
 								self.min_profit.setdefault(stk_cd, pl_rt)
 
 							peak = self.peak_profit[stk_cd]
-							# 4단계 동적 trailing gap (peak 구간별)
-							if peak >= 7.0:
+							snap = self.entry_snapshot.get(stk_cd, {})
+
+							# ORB 전용 트레일링: peak ≥ 3% → gap 1.5%
+							if snap.get('strategy') == '장초반ORB':
+								dynamic_trail = 1.5 if peak >= 3.0 else effective_trail
+							# 4단계 동적 trailing gap (일반)
+							elif peak >= 7.0:
 								dynamic_trail = 1.5
 							elif peak >= 4.0:
 								dynamic_trail = 2.0
@@ -145,6 +150,12 @@ class ExitMixin:
 								if elapsed_min <= 3 and pl_rt < -1.2:
 									should_sell = True
 									sell_reason = f'조기 손절 (진입 후 {elapsed_min:.0f}분, {pl_rt:+.2f}%)'
+
+							# ORB 저점 이탈 손절
+							orb_stop_pct = snap.get('orb_stop_pct')
+							if not should_sell and orb_stop_pct is not None and pl_rt <= orb_stop_pct:
+								should_sell = True
+								sell_reason = f'ORB 저점 이탈 ({pl_rt:+.2f}% ≤ {orb_stop_pct:+.2f}%)'
 
 							# 고정 손절
 							if not should_sell and pl_rt <= effective_stop:

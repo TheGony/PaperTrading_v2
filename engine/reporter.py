@@ -67,7 +67,7 @@ class ReporterMixin:
 			'날짜', '시간', '구간', '종목명', '종목코드',
 			'수익률(%)', 'MFE(%)', 'MAE(%)', '매도사유',
 			'진입가', '진입RSI', '진입등락률(%)', '거래량비율',
-			'선정점수', '외인기관', 'KOSPI등락(%)', 'KOSDAQ등락(%)',
+			'선정점수', '외인기관', 'KOSPI등락(%)', 'KOSDAQ등락(%)', '전략',
 		]
 		if os.path.exists(detail_path):
 			# 기존 헤더 확인 후 컬럼 추가된 경우 파일 재작성
@@ -99,6 +99,7 @@ class ReporterMixin:
 					t.get('entry_flu_rt', ''), t.get('entry_vol_ratio', ''),
 					t.get('entry_score', ''), '○' if t.get('is_foreign') else '×',
 					t.get('kospi_flu', ''), t.get('kosdaq_flu', ''),
+					t.get('strategy', '모멘텀'),
 				])
 
 		# ── daily_summary.csv (날짜별 1행 누적) ──────────────────────────
@@ -276,6 +277,8 @@ class ReporterMixin:
 			self.daily_loss_count = {}
 			self.entry_time = {}
 			self.entry_snapshot = {}
+			self.orb_data = {}
+			self.orb_buy_count = 0
 			print("장 종료: 선정된 종목 리스트를 초기화했습니다.")
 
 		except Exception as e:

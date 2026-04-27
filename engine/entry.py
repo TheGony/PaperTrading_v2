@@ -1,7 +1,7 @@
 import asyncio
 import datetime
-from api.chart import fn_ka10080
-from api.account import fn_kt00004, fn_kt00001
+from api.chart import fn_ka10080, fn_ka10080_full
+from api.account import fn_kt00004, fn_kt00001, fn_kt00002
 from api.order import fn_kt10000
 from api.market import fn_ka10001, fn_get_market_index
 from util.market_hour import MarketHour
@@ -86,7 +86,17 @@ class EntryMixin:
 							print(f"{stk_cd}: 데드크로스 감지 but RSI {f'{rsi_exit:.1f}' if rsi_exit else 'N/A'} >= 45 - 청산 보류")
 
 					# ── 진입 (phase별 조건) ──────────────────────────
-					if stk_cd in self.selected_stocks and stk_cd not in held_stock_codes:
+					if stk_cd in self.selected_stocks and stk_cd not in held_stock_codes and stk_cd not in self.entry_time:
+
+						# ── ORB 진입 시도 (장초반 09:10~10:30) ──────────
+						if phase == 'early':
+							now_time = datetime.datetime.now().time()
+							if datetime.time(9, 10) <= now_time <= datetime.time(10, 30):
+								rsi_val = self._calc_rsi(prices, rsi_period)
+								rsi_s   = f"{rsi_val:.1f}" if rsi_val is not None else "N/A"
+								orb_bought = await self._try_orb_entry(stk_cd, current_price, prices, volumes, rsi_val, rsi_s)
+								if orb_bought:
+									continue  # ORB로 매수됨 → 일반 진입 스킵
 
 						breakout_high = max(prices[1:breakout_bars + 1])
 						if current_price <= breakout_high:
@@ -123,9 +133,12 @@ class EntryMixin:
 							if today_open > 0 and current_price <= today_open:
 								print(f"{stk_cd}: 현재가({current_price:.0f}) <= 시가({today_open:.0f}) - 매수 스킵")
 								continue
-							# RSI > 50
+							# RSI 50 < x <= 68
 							if rsi is None or rsi <= 50:
 								print(f"{stk_cd}: RSI {rsi_str} <= 50 - 매수 스킵")
+								continue
+							if rsi > 68:
+								print(f"{stk_cd}: RSI {rsi_str} > 68 (과열) - 매수 스킵")
 								continue
 
 						elif phase == 'mid':
@@ -133,11 +146,14 @@ class EntryMixin:
 							if prev_vol == 0 or curr_vol <= prev_vol:
 								print(f"{stk_cd}: 거래량 미달 (현재 {curr_vol:.0f} <= 직전봉 {prev_vol:.0f}) - 매수 스킵")
 								continue
-							# RSI > 55 OR 현재가 > MA20
+							# RSI > 55 OR 현재가 > MA20, AND RSI <= 65
 							rsi_ok = rsi is not None and rsi > 55
 							ma_ok  = current_price > ma_long_curr
 							if not (rsi_ok or ma_ok):
 								print(f"{stk_cd}: RSI {rsi_str} <= 55 AND 현재가({current_price:.0f}) <= MA{chart_long}({ma_long_curr:.1f}) - 매수 스킵")
+								continue
+							if rsi is not None and rsi > 65:
+								print(f"{stk_cd}: RSI {rsi_str} > 65 (과열) - 매수 스킵")
 								continue
 
 						else:  # late
@@ -145,9 +161,12 @@ class EntryMixin:
 							if prev_vol == 0 or curr_vol <= prev_vol:
 								print(f"{stk_cd}: 거래량 미달 (현재 {curr_vol:.0f} <= 직전봉 {prev_vol:.0f}) - 매수 스킵")
 								continue
-							# RSI > 60
+							# RSI 60 < x <= 63
 							if rsi is None or rsi <= 60:
 								print(f"{stk_cd}: RSI {rsi_str} <= 60 - 매수 스킵")
+								continue
+							if rsi > 63:
+								print(f"{stk_cd}: RSI {rsi_str} > 63 (과열) - 매수 스킵")
 								continue
 							# 현재가 > MA20
 							if current_price <= ma_long_curr:
@@ -197,6 +216,7 @@ class EntryMixin:
 							'is_foreign':      meta.get('is_foreign', False),
 							'kospi_flu':       kospi_flu,
 							'kosdaq_flu':      kosdaq_flu,
+							'strategy':        '모멘텀',
 						}
 
 						signal_info = (
@@ -218,6 +238,93 @@ class EntryMixin:
 				else:
 					get_logger().error(f'[차트체크 실패] 최대 재시도 횟수({max_retries}) 초과')
 
+	async def _try_orb_entry(self, stk_cd, current_price, prices, volumes, rsi, rsi_str):
+		"""ORB(Opening Range Breakout) 진입 시도. 성공 시 True 반환"""
+		log = get_logger()
+
+		# ORB 범위 확립 (종목당 최초 1회)
+		if stk_cd not in self.orb_data:
+			candles = await asyncio.get_event_loop().run_in_executor(
+				None, fn_ka10080_full, stk_cd, 30, 'N', '', self.token
+			)
+			# cntr_tm 포맷: 'HHMMSS' 또는 'YYYYMMDDHHmmSS' 지원
+			def _hhmm(t):
+				t = str(t).strip()
+				return t[8:12] if len(t) >= 14 else t[0:4]
+
+			orb_candles = [c for c in candles if '0900' <= _hhmm(c['cntr_tm']) <= '0909']
+			if len(orb_candles) < 3:
+				return False  # ORB 데이터 부족
+
+			orb_high = max(c['high_pric'] for c in orb_candles)
+			orb_low  = min(c['low_pric']  for c in orb_candles)
+
+			# 갭상승 확인: 당일 시가 > 전일종가
+			first = orb_candles[-1]  # 09:00 봉 (가장 오래된)
+			prev_close = first['cur_prc'] - first['pred_pre']
+			gap_up = (first['open_pric'] > prev_close) if prev_close > 0 else False
+
+			self.orb_data[stk_cd] = {'high': orb_high, 'low': orb_low, 'gap_up': gap_up}
+			log.info(f'[ORB] {stk_cd} 범위 확립: high={orb_high:.0f} low={orb_low:.0f} gap_up={gap_up}')
+
+		orb = self.orb_data[stk_cd]
+
+		if not orb['gap_up']:
+			return False
+
+		orb_high = orb['high']
+		if current_price <= orb_high:
+			return False
+		if current_price > orb_high * 1.01:  # 추격 방지
+			return False
+
+		curr_vol = volumes[0] if volumes else 0
+		prev_vol = volumes[1] if len(volumes) > 1 else 0
+		if prev_vol == 0 or curr_vol < prev_vol * 1.5:
+			return False
+
+		if rsi is None or rsi <= 55 or rsi > 68:
+			return False
+
+		orb_max = get_setting('orb_max_count', 2)
+		if self.orb_buy_count >= orb_max:
+			return False
+
+		last_sell = self.sell_cooldown.get(stk_cd)
+		if last_sell:
+			elapsed = (datetime.datetime.now() - last_sell).total_seconds() / 60
+			if elapsed < 20:
+				return False
+
+		# ORB 저점을 수익률 기준으로 변환 (exit.py에서 pl_rt로 비교하기 위해)
+		orb_stop_pct = round((orb['low'] / current_price - 1) * 100, 2)
+
+		meta = self.selected_stocks_meta.get(stk_cd, {})
+		kospi_flu, kosdaq_flu = await asyncio.get_event_loop().run_in_executor(
+			None, fn_get_market_index, self.token
+		)
+		snapshot = {
+			'entry_price':     current_price,
+			'entry_rsi':       round(rsi, 2) if rsi is not None else None,
+			'entry_flu_rt':    meta.get('flu_rt', 0),
+			'entry_vol_ratio': round(curr_vol / prev_vol, 2) if prev_vol > 0 else None,
+			'entry_score':     round(meta.get('score', 0), 4),
+			'is_foreign':      meta.get('is_foreign', False),
+			'kospi_flu':       kospi_flu,
+			'kosdaq_flu':      kosdaq_flu,
+			'orb_stop_pct':    orb_stop_pct,
+			'strategy':        '장초반ORB',
+		}
+		signal_info = (
+			f"📈 [ORB] 개장범위 돌파: {stk_cd}\n"
+			f"   현재가: {current_price:.0f} > ORB 고점: {orb_high:.0f}\n"
+			f"   RSI: {rsi_str} | 거래량비율: {curr_vol/prev_vol:.1f}x | ORB저점: {orb['low']:.0f}"
+		)
+		bought = await self._buy_stock(stk_cd, current_price, signal_info=signal_info, snapshot=snapshot)
+		if bought:
+			self.orb_buy_count += 1
+		return bought
+
 	async def _buy_stock(self, stk_cd, current_price, signal_info='', snapshot=None):
 		"""종목 매수. 성공 시 True, 실패 시 False 반환"""
 		log = get_logger()
@@ -234,7 +341,17 @@ class EntryMixin:
 				None, fn_kt00004, False, 'N', '', self.token
 			)
 			if my_stk is None:
-				total_assets = float(entry)
+				# kt00004 실패 시 추정예탁자산(kt00002)으로 대체
+				prsm, _ = await asyncio.get_event_loop().run_in_executor(
+					None, fn_kt00002, self.token
+				)
+				if prsm and prsm != '0':
+					total_assets = float(str(prsm).replace(',', ''))
+					log.warning(f'[매수] {stk_cd} kt00004 실패 — 추정예탁자산 {total_assets:,.0f}원 사용')
+				else:
+					log.warning(f'[매수] {stk_cd} 계좌 조회 실패 — 매수 취소 (총자산 불명)')
+					tel_send(f"❌ 매수 취소: {stk_cd} (계좌 조회 실패 — 총자산 불명)")
+					return False
 			else:
 				stk_evlt_sum = sum(float(s.get('evlt_amt', '0') or '0') for s in my_stk) if my_stk else 0
 				cash_val = float(aset_evlt_amt) if aset_evlt_amt and aset_evlt_amt != '0' else float(entry)

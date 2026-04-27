@@ -144,6 +144,8 @@ class TraderMixin:
 			self.selected_stocks = []
 			self.selected_stocks_names = {}
 			self.last_chart_check_time = None
+			self.orb_data = {}
+			self.orb_buy_count = 0
 
 			tel_send("✅ 트레이딩 프로세스가 중지되었습니다")
 			return True

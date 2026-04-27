@@ -34,3 +34,5 @@ class ChatCommand(
 		self.trade_log              = []     # 당일 매매 기록
 		self.current_phase          = None   # 현재 장 구간 (phase transition 감지용)
 		self.early_buy_count        = 0      # 장초반 매수 횟수 (최대 5회)
+		self.orb_data               = {}     # ORB 고점/저점 캐시 {stk_cd: {'high', 'low', 'gap_up'}}
+		self.orb_buy_count          = 0      # 장초반 ORB 매수 횟수 (최대 2회)

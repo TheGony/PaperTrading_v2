@@ -23,7 +23,10 @@ class TraderMixin:
 		try:
 			await self._wait_for_market_start_plus_one_minute()
 
-			# 초기 종목 선정 (실패해도 루프는 유지 - 다음 갱신 주기에 재시도)
+			# ORB 전용 후보 선정 (09:01, 1회 고정 — 이후 갱신 없음)
+			await self._get_orb_candidates()
+
+			# 모멘텀 후보 선정 (실패해도 루프는 유지 - 다음 갱신 주기에 재시도)
 			await self._select_initial_stocks()
 
 			last_refresh_time = datetime.datetime.now()
@@ -102,6 +105,7 @@ class TraderMixin:
 			self.selected_stocks = []
 			self.selected_stocks_names = {}
 			self.last_chart_check_time = None
+			self.orb_candidates = []
 
 			# 백그라운드 태스크 시작
 			self.trading_task      = asyncio.create_task(self._trading_loop())
@@ -146,6 +150,7 @@ class TraderMixin:
 			self.last_chart_check_time = None
 			self.orb_data = {}
 			self.orb_buy_count = 0
+			self.orb_candidates = []
 
 			tel_send("✅ 트레이딩 프로세스가 중지되었습니다")
 			return True

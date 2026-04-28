@@ -1,5 +1,6 @@
 from strategy.indicators import IndicatorsMixin
 from strategy.selector import StockSelectorMixin
+from strategy.orb_selector import OrbSelectorMixin
 from engine.reporter import ReporterMixin
 from engine.entry import EntryMixin
 from engine.exit import ExitMixin
@@ -10,6 +11,7 @@ from bot.commands import BotCommandsMixin
 class ChatCommand(
 	IndicatorsMixin,
 	StockSelectorMixin,
+	OrbSelectorMixin,
 	EntryMixin,
 	ExitMixin,
 	ReporterMixin,
@@ -36,3 +38,4 @@ class ChatCommand(
 		self.early_buy_count        = 0      # 장초반 매수 횟수 (최대 5회)
 		self.orb_data               = {}     # ORB 고점/저점 캐시 {stk_cd: {'high', 'low', 'gap_up'}}
 		self.orb_buy_count          = 0      # 장초반 ORB 매수 횟수 (최대 2회)
+		self.orb_candidates         = []     # ORB 전용 후보 리스트 (장 시작 1회 선정, 갱신 없음)

@@ -38,11 +38,14 @@ class ExitMixin:
 					log.info(f'[매도 시도] {stk_cd} | 수량={ord_qty} | 수익률={profit_loss_rate:+.2f}% | reason={reason}')
 					if result == 0:
 						emoji = "🔴" if profit_loss_rate > 0 else ("🔵" if profit_loss_rate < 0 else "➡️")
-						mfe   = self.peak_profit.pop(stk_cd, None)
-						mae   = self.min_profit.pop(stk_cd, None)
-						self.entry_time.pop(stk_cd, None)
-						snap  = self.entry_snapshot.pop(stk_cd, None)
-						log.info(f'[매도 완료] {stk_cd} | 수익률={profit_loss_rate:+.2f}% | MFE={mfe} | MAE={mae}')
+						mfe      = self.peak_profit.pop(stk_cd, None)
+						mae      = self.min_profit.pop(stk_cd, None)
+						entry_dt = self.entry_time.pop(stk_cd, None)
+						snap     = self.entry_snapshot.pop(stk_cd, None)
+						held_min = round((datetime.datetime.now() - entry_dt).total_seconds() / 60, 1) if entry_dt else None
+						if snap is not None:
+							snap['held_minutes'] = held_min
+						log.info(f'[매도 완료] {stk_cd} | 수익률={profit_loss_rate:+.2f}% | MFE={mfe} | MAE={mae} | 보유={held_min}분')
 						completion = f"{emoji} {stock['stk_nm']} ({stk_cd}) {ord_qty}주 매도 완료\n   수익률: {profit_loss_rate:+.2f}% | {reason}"
 						tel_send(f"{signal_info}\n{completion}" if signal_info else completion)
 						self._log_trade(stock['stk_nm'], stk_cd, profit_loss_rate, reason, mfe=mfe, mae=mae, snapshot=snap)
@@ -126,10 +129,17 @@ class ExitMixin:
 							peak = self.peak_profit[stk_cd]
 							snap = self.entry_snapshot.get(stk_cd, {})
 
-							# ORB 전용 트레일링: peak ≥ 3% → gap 1.5%
+							# ORB 전용 트레일링 (4단계)
 							if snap.get('strategy') == '장초반ORB':
-								dynamic_trail = 1.5 if peak >= 3.0 else effective_trail
-							# 4단계 동적 trailing gap (일반)
+								if peak < 2.0:
+									dynamic_trail = 1.2
+								elif peak < 4.0:
+									dynamic_trail = 1.5
+								elif peak < 7.0:
+									dynamic_trail = 2.0
+								else:
+									dynamic_trail = 2.5
+							# 4단계 동적 trailing gap (모멘텀)
 							elif peak >= 7.0:
 								dynamic_trail = 1.5
 							elif peak >= 4.0:
@@ -151,11 +161,16 @@ class ExitMixin:
 									should_sell = True
 									sell_reason = f'조기 손절 (진입 후 {elapsed_min:.0f}분, {pl_rt:+.2f}%)'
 
-							# ORB 저점 이탈 손절
+							# ORB 손절: max(저점, -2%) 기준 이탈
 							orb_stop_pct = snap.get('orb_stop_pct')
 							if not should_sell and orb_stop_pct is not None and pl_rt <= orb_stop_pct:
 								should_sell = True
-								sell_reason = f'ORB 저점 이탈 ({pl_rt:+.2f}% ≤ {orb_stop_pct:+.2f}%)'
+								sell_reason = f'ORB 손절 ({pl_rt:+.2f}% ≤ {orb_stop_pct:+.2f}%)'
+
+							# ORB 수익 반납 방지: peak ≥ 1.5% 도달 후 수익률이 0% 아래로 내려오면 즉시 매도
+							if not should_sell and snap.get('strategy') == '장초반ORB' and peak >= 1.5 and pl_rt < 0:
+								should_sell = True
+								sell_reason = f'ORB 수익 반납 방지 (고점: {peak:+.2f}% → 현재: {pl_rt:+.2f}%)'
 
 							# 고정 손절
 							if not should_sell and pl_rt <= effective_stop:
@@ -172,9 +187,13 @@ class ExitMixin:
 									None, fn_kt10001, stk_cd, str(ord_qty), 'N', '', self.token
 								)
 								if result == 0:
-									mfe   = self.peak_profit.get(stk_cd)
-									mae   = self.min_profit.get(stk_cd)
-									snap  = self.entry_snapshot.pop(stk_cd, None)
+									mfe      = self.peak_profit.get(stk_cd)
+									mae      = self.min_profit.get(stk_cd)
+									entry_dt = self.entry_time.get(stk_cd)
+									snap     = self.entry_snapshot.pop(stk_cd, None)
+									held_min = round((datetime.datetime.now() - entry_dt).total_seconds() / 60, 1) if entry_dt else None
+									if snap is not None:
+										snap['held_minutes'] = held_min
 									emoji = '💰' if pl_rt > 0 else '🔵'
 									tel_send(f"{emoji} {stock['stk_nm']} ({stk_cd}) {ord_qty}주 매도 ({sell_reason})")
 									self._log_trade(stock['stk_nm'], stk_cd, pl_rt, sell_reason, mfe=mfe, mae=mae, snapshot=snap)

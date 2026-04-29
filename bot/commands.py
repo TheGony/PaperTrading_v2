@@ -60,11 +60,12 @@ class BotCommandsMixin:
 				if orb_list:
 					msg += f"\n\n📌 [ORB 후보] ({len(orb_list)}종목, 09:01 1회 고정)\n"
 					for c in orb_list:
-						trde = c.get('trde_prica', 0)
+						trde     = c.get('trde_prica', 0)
 						trde_str = f"{trde/10000:.0f}억" if trde >= 10000 else f"{trde:.0f}백만"
+						gap_str  = f"{c['gap']:+.1f}%" if c.get('gap') is not None else "N/A"
 						msg += (
 							f"   {c['stk_nm']}({c['stk_cd']}) "
-							f"갭={c['gap']:+.1f}% | 등락={c['flu_rt']:+.1f}% | "
+							f"갭={gap_str} | 등락={c['flu_rt']:+.1f}% | "
 							f"거래대금={trde_str}\n"
 						)
 				else:

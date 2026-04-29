@@ -110,8 +110,9 @@ class EntryMixin:
 						if current_price <= breakout_high:
 							continue
 
-						# 추격매수 방지: 돌파 기준점 대비 1% 초과 시 진입 금지
-						if current_price > breakout_high * 1.01:
+						# 추격매수 방지: 장초반 2%, 중반/후반 1%
+						chase_limit = 1.02 if phase == 'early' else 1.01
+						if current_price > breakout_high * chase_limit:
 							continue
 
 						# 쿨다운: 매도 후 20분 이내 재매수 금지
@@ -136,17 +137,17 @@ class EntryMixin:
 							if prev_vol == 0 or curr_vol <= prev_vol:
 								print(f"{stk_cd}: 거래량 미달 (현재 {curr_vol:.0f} <= 직전봉 {prev_vol:.0f}) - 매수 스킵")
 								continue
-							# 현재가 > 시가
+							# 현재가 > 시가 × 0.98 (-2% 눌림 허용)
 							today_open = open_prices[-1] if open_prices and open_prices[-1] > 0 else 0
-							if today_open > 0 and current_price <= today_open:
-								print(f"{stk_cd}: 현재가({current_price:.0f}) <= 시가({today_open:.0f}) - 매수 스킵")
+							if today_open > 0 and current_price <= today_open * 0.98:
+								print(f"{stk_cd}: 현재가({current_price:.0f}) <= 시가({today_open:.0f})×0.98 - 매수 스킵")
 								continue
-							# RSI 50 < x <= 68
-							if rsi is None or rsi <= 50:
-								print(f"{stk_cd}: RSI {rsi_str} <= 50 - 매수 스킵")
+							# RSI 45 < x <= 75 (완화)
+							if rsi is None or rsi <= 45:
+								print(f"{stk_cd}: RSI {rsi_str} <= 45 - 매수 스킵")
 								continue
-							if rsi > 68:
-								print(f"{stk_cd}: RSI {rsi_str} > 68 (과열) - 매수 스킵")
+							if rsi > 75:
+								print(f"{stk_cd}: RSI {rsi_str} > 75 (과열) - 매수 스킵")
 								continue
 
 						elif phase == 'mid':
@@ -198,17 +199,18 @@ class EntryMixin:
 								print(f"{stk_cd}: 과열(flu_rt={flu_rt:.1f}%) 예외조건 {overheat_score}/3 미달 - 매수 스킵")
 								continue
 
-						# ── 고점 근접 필터 (ka10001 당일 최고가 기준) ──────
-						stk_info = await asyncio.get_event_loop().run_in_executor(
-							None, fn_ka10001, stk_cd, 'N', '', self.token
-						)
-						if stk_info:
-							intraday_high = stk_info.get('high_pric')
-							if intraday_high and intraday_high > 0:
-								if current_price >= intraday_high * 0.98:
-									if curr_vol <= prev_vol * 1.7:
-										print(f"{stk_cd}: 고점({intraday_high:.0f}) 근접+거래량 미달 - 매수 스킵")
-										continue
+						# ── 고점 근접 필터 (장초반 생략, 중반/후반만 적용) ──────
+						if phase != 'early':
+							stk_info = await asyncio.get_event_loop().run_in_executor(
+								None, fn_ka10001, stk_cd, 'N', '', self.token
+							)
+							if stk_info:
+								intraday_high = stk_info.get('high_pric')
+								if intraday_high and intraday_high > 0:
+									if current_price >= intraday_high * 0.98:
+										if curr_vol <= prev_vol * 1.7:
+											print(f"{stk_cd}: 고점({intraday_high:.0f}) 근접+거래량 미달 - 매수 스킵")
+											continue
 
 						# ── 진입 스냅샷 빌드 ────────────────────────────
 						meta = self.selected_stocks_meta.get(stk_cd, {})
@@ -299,7 +301,7 @@ class EntryMixin:
 			log.info(f'[ORB] {stk_cd} 진입 거절: RSI 범위 이탈 (RSI={rsi_str}, 범위: 55<x<=68)')
 			return False
 
-		orb_max = get_setting('orb_max_count', 2)
+		orb_max = get_setting('orb_max_count', 5)
 		if self.orb_buy_count >= orb_max:
 			log.info(f'[ORB] {stk_cd} 진입 거절: ORB 최대 매수 횟수 초과 ({self.orb_buy_count}/{orb_max})')
 			return False

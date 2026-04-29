@@ -115,6 +115,10 @@ class EntryMixin:
 						if current_price > breakout_high * chase_limit:
 							continue
 
+						# 실제 돌파 미발생이면 대기 (0.995~1.0 구간은 준비 상태만)
+						if current_price <= breakout_high:
+							continue
+
 						# 최근 20봉 고점 0.5% 이내 진입 금지 (꼭대기 진입 방지)
 						recent_high = max(highs[:20]) if len(highs) >= 20 else (max(highs) if highs else 0)
 						if recent_high > 0 and current_price >= recent_high * 0.99:
@@ -134,6 +138,8 @@ class EntryMixin:
 						rsi      = self._calc_rsi(prices, rsi_period)
 						rsi_str  = f"{rsi:.1f}" if rsi is not None else "N/A"
 
+						prev_rsi = self._calc_rsi(prices[1:], rsi_period)
+
 						if phase == 'early':
 							# 최대 5회 진입 제한
 							if self.early_buy_count >= 5:
@@ -148,12 +154,12 @@ class EntryMixin:
 							if today_open > 0 and current_price <= today_open * 0.98:
 								print(f"{stk_cd}: 현재가({current_price:.0f}) <= 시가({today_open:.0f})×0.98 - 매수 스킵")
 								continue
-							# RSI 45 < x <= 65
-							if rsi is None or rsi <= 45:
-								print(f"{stk_cd}: RSI {rsi_str} <= 45 - 매수 스킵")
+							# RSI 40 <= x <= 70
+							if rsi is None or rsi < 40:
+								print(f"{stk_cd}: RSI {rsi_str} < 40 - 매수 스킵")
 								continue
-							if rsi > 65:
-								print(f"{stk_cd}: RSI {rsi_str} > 65 (과열) - 매수 스킵")
+							if rsi > 70:
+								print(f"{stk_cd}: RSI {rsi_str} > 70 (과열) - 매수 스킵")
 								continue
 
 						elif phase == 'mid':
@@ -161,14 +167,15 @@ class EntryMixin:
 							if prev_vol == 0 or curr_vol <= prev_vol * 1.3:
 								print(f"{stk_cd}: 거래량 미달 (현재 {curr_vol:.0f} <= 직전봉×1.3 {prev_vol*1.3:.0f}) - 매수 스킵")
 								continue
-							# RSI > 50 OR 현재가 > MA20, AND RSI <= 60
-							rsi_ok = rsi is not None and rsi > 50
-							ma_ok  = current_price > ma_long_curr
-							if not (rsi_ok or ma_ok):
-								print(f"{stk_cd}: RSI {rsi_str} <= 50 AND 현재가({current_price:.0f}) <= MA{chart_long}({ma_long_curr:.1f}) - 매수 스킵")
+							# RSI 45 <= x <= 65 AND RSI >= prev_RSI (상승 중)
+							if rsi is None or rsi < 45:
+								print(f"{stk_cd}: RSI {rsi_str} < 45 - 매수 스킵")
 								continue
-							if rsi is not None and rsi > 60:
-								print(f"{stk_cd}: RSI {rsi_str} > 60 (과열) - 매수 스킵")
+							if rsi > 65:
+								print(f"{stk_cd}: RSI {rsi_str} > 65 (과열) - 매수 스킵")
+								continue
+							if prev_rsi is not None and rsi < prev_rsi:
+								print(f"{stk_cd}: RSI 하락 중 ({prev_rsi:.1f}→{rsi_str}) - 매수 스킵")
 								continue
 
 						else:  # late
@@ -176,12 +183,15 @@ class EntryMixin:
 							if prev_vol == 0 or curr_vol <= prev_vol:
 								print(f"{stk_cd}: 거래량 미달 (현재 {curr_vol:.0f} <= 직전봉 {prev_vol:.0f}) - 매수 스킵")
 								continue
-							# RSI 58 < x <= 62
-							if rsi is None or rsi <= 58:
-								print(f"{stk_cd}: RSI {rsi_str} <= 58 - 매수 스킵")
+							# RSI 50 <= x <= 60 AND RSI >= prev_RSI (상승 중)
+							if rsi is None or rsi < 50:
+								print(f"{stk_cd}: RSI {rsi_str} < 50 - 매수 스킵")
 								continue
-							if rsi > 62:
-								print(f"{stk_cd}: RSI {rsi_str} > 62 (과열) - 매수 스킵")
+							if rsi > 60:
+								print(f"{stk_cd}: RSI {rsi_str} > 60 (과열) - 매수 스킵")
+								continue
+							if prev_rsi is not None and rsi < prev_rsi:
+								print(f"{stk_cd}: RSI 하락 중 ({prev_rsi:.1f}→{rsi_str}) - 매수 스킵")
 								continue
 							# 현재가 > MA20
 							if current_price <= ma_long_curr:
@@ -229,11 +239,16 @@ class EntryMixin:
 							'strategy':        '모멘텀',
 						}
 
+						# 돌파 유지 확인: phase별 초 동안 가격·거래량 유지
+						confirm_secs = 2.5 if phase == 'early' else (4.0 if phase == 'mid' else 3.0)
+						if not await self._confirm_breakout(stk_cd, breakout_high, confirm_secs):
+							continue
+
 						gap_to_high = (current_price / breakout_high - 1) * 100
 						signal_info = (
-							f"📈 [{self._phase_name(phase)}] 고점 근접 진입: {stk_cd}\n"
+							f"📈 [{self._phase_name(phase)}] 돌파 확인 진입: {stk_cd}\n"
 							f"   현재가: {current_price:.0f} | 직전{breakout_bars}봉 고점: {breakout_high:.0f} ({gap_to_high:+.1f}%)\n"
-							f"   RSI: {rsi_str} | 거래량: {curr_vol:.0f} (직전봉: {prev_vol:.0f})"
+							f"   RSI: {rsi_str} | 거래량: {curr_vol:.0f} (직전봉: {prev_vol:.0f}) | 확인: {confirm_secs}초"
 						)
 						bought = await self._buy_stock(stk_cd, current_price, signal_info=signal_info, snapshot=entry_snapshot)
 						if bought and phase == 'early':
@@ -248,6 +263,36 @@ class EntryMixin:
 					await asyncio.sleep(retry_delay)
 				else:
 					get_logger().error(f'[차트체크 실패] 최대 재시도 횟수({max_retries}) 초과')
+
+	async def _confirm_breakout(self, stk_cd, breakout_high, confirm_seconds):
+		"""돌파 후 confirm_seconds 동안 3개 조건 유지 확인. True=진입, False=실패/초기화
+		- 조건1: 가격 >= breakout_high * 0.998
+		- 조건2: 가격 > breakout_high (돌파 유지)
+		- 조건3: 거래량 감소 없음 (누적 거래량 기준)
+		"""
+		log = get_logger()
+		poll_interval = 0.5
+		elapsed = 0.0
+
+		while elapsed < confirm_seconds:
+			await asyncio.sleep(poll_interval)
+			elapsed += poll_interval
+
+			stk_info = await asyncio.get_event_loop().run_in_executor(
+				None, fn_ka10001, stk_cd, 'N', '', self.token
+			)
+			if not stk_info:
+				log.info(f'[돌파확인] {stk_cd} API 실패 — 중단')
+				return False
+
+			cur_prc = stk_info.get('cur_prc', 0)
+
+			if cur_prc <= breakout_high:
+				log.info(f'[돌파확인] {stk_cd} 돌파 이탈 ({cur_prc:.0f} ≤ {breakout_high:.0f}) — 초기화')
+				return False
+
+		log.info(f'[돌파확인] {stk_cd} {confirm_seconds}초 유지 완료 → 진입')
+		return True
 
 	async def _try_orb_entry(self, stk_cd, current_price, prices, volumes, rsi, rsi_str):
 		"""ORB(Opening Range Breakout) 진입 시도. 성공 시 True 반환"""
@@ -298,8 +343,8 @@ class EntryMixin:
 			log.info(f'[ORB] {stk_cd} 진입 거절: 거래량 미달 (현재={curr_vol:.0f}, 직전={prev_vol:.0f}, {vol_ratio:.2f}x)')
 			return False
 
-		if rsi is None or rsi <= 55 or rsi > 68:
-			log.info(f'[ORB] {stk_cd} 진입 거절: RSI 범위 이탈 (RSI={rsi_str}, 범위: 55<x<=68)')
+		if rsi is None or rsi < 50 or rsi > 75:
+			log.info(f'[ORB] {stk_cd} 진입 거절: RSI 범위 이탈 (RSI={rsi_str}, 범위: 50<=x<=75)')
 			return False
 
 		orb_max = get_setting('orb_max_count', 5)
@@ -342,8 +387,12 @@ class EntryMixin:
 			'orb_overshoot':   orb_overshoot,
 			'strategy':        '장초반ORB',
 		}
+		# 돌파 유지 확인: 3초 동안 가격·거래량 유지
+		if not await self._confirm_breakout(stk_cd, orb_high, 3.0):
+			return False
+
 		signal_info = (
-			f"📈 [ORB] 개장범위 돌파: {stk_cd}\n"
+			f"📈 [ORB] 개장범위 돌파 확인: {stk_cd}\n"
 			f"   현재가: {current_price:.0f} > ORB 고점: {orb_high:.0f} (+{orb_overshoot:.2f}%)\n"
 			f"   갭: {orb_gap:.1f}% | RSI: {rsi_str} | 거래량비율: {vol_ratio:.1f}x | 손절: {orb_stop_pct:+.2f}%"
 		)

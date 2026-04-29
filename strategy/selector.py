@@ -247,9 +247,9 @@ class StockSelectorMixin:
 		chart_short = get_setting('chart_short', 5)
 		chart_long  = get_setting('chart_long', 20)
 		phase_strategy = {
-			'early': f"직전 3봉 고점 0.5% 이내 진입 + 거래량≥1.5x + 시가×0.98↑ + RSI 45~65 | 손절 -2% / 트레일링 2%",
-			'mid':   f"직전 5봉 고점 0.5% 이내 진입 + 거래량>1.3x + (RSI>50 OR MA{chart_long}↑) + RSI≤60 | 손절 -3% / 트레일링 3.5%",
-			'late':  f"직전 5봉 고점 0.5% 이내 진입 + 거래량↑ + RSI 58~62 + MA{chart_long}↑ | 손절 -3% / 트레일링 2.5%",
+			'early': f"직전 3봉 고점 돌파 확인(2.5초) + 거래량≥1.5x + 시가×0.98↑ + RSI 40~70 | 손절 -2% / 트레일링 2%",
+			'mid':   f"직전 5봉 고점 돌파 확인(4초) + 거래량>1.3x + RSI 45~65 + RSI상승 | 손절 -3% / 트레일링 3.5%",
+			'late':  f"직전 5봉 고점 돌파 확인(3초) + 거래량↑ + RSI 50~60 + RSI상승 + MA{chart_long}↑ | 손절 -3% / 트레일링 2.5%",
 		}
 		tel_send(
 			f"✅ [{self._phase_name(phase)}] 초기 종목 선정 완료\n"

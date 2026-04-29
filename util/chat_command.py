@@ -39,3 +39,4 @@ class ChatCommand(
 		self.orb_data               = {}     # ORB 고점/저점 캐시 {stk_cd: {'high', 'low', 'gap_up'}}
 		self.orb_buy_count          = 0      # 장초반 ORB 매수 횟수 (최대 2회)
 		self.orb_candidates         = []     # ORB 전용 후보 리스트 (장 시작 1회 선정, 갱신 없음)
+		self.last_known_assets      = None   # 총자산 캐시 (kt00004 429 등 일시 실패 시 폴백)

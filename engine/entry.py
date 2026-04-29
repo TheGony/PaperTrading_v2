@@ -115,6 +115,12 @@ class EntryMixin:
 						if current_price > breakout_high * chase_limit:
 							continue
 
+						# 최근 20봉 고점 0.5% 이내 진입 금지 (꼭대기 진입 방지)
+						recent_high = max(highs[:20]) if len(highs) >= 20 else (max(highs) if highs else 0)
+						if recent_high > 0 and current_price >= recent_high * 0.995:
+							print(f"{stk_cd}: 최근 고점({recent_high:.0f}) 0.5% 이내 - 매수 스킵")
+							continue
+
 						# 쿨다운: 매도 후 20분 이내 재매수 금지
 						last_sell = self.sell_cooldown.get(stk_cd)
 						if last_sell:
@@ -133,9 +139,9 @@ class EntryMixin:
 							if self.early_buy_count >= 5:
 								print(f"{stk_cd}: 장초반 최대 매수 5회 초과 - 매수 스킵")
 								continue
-							# 거래량 > 직전봉
-							if prev_vol == 0 or curr_vol <= prev_vol:
-								print(f"{stk_cd}: 거래량 미달 (현재 {curr_vol:.0f} <= 직전봉 {prev_vol:.0f}) - 매수 스킵")
+							# 거래량 > 직전봉 × 1.5 (폭발적 증가만 허용)
+							if prev_vol == 0 or curr_vol < prev_vol * 1.5:
+								print(f"{stk_cd}: 거래량 미달 (현재 {curr_vol:.0f} < 직전봉×1.5 {prev_vol*1.5:.0f}) - 매수 스킵")
 								continue
 							# 현재가 > 시가 × 0.98 (-2% 눌림 허용)
 							today_open = open_prices[-1] if open_prices and open_prices[-1] > 0 else 0
@@ -187,17 +193,11 @@ class EntryMixin:
 							print(f"{stk_cd}: 당일 손실 {self.daily_loss_count[stk_cd]}회 - 금일 거래 금지")
 							continue
 
-						# ── 과열 종목 조건부 허용 (3개 중 2개 이상) ────────
+						# ── 과열 종목 진입 금지 (등락률 > 20%) ────────
 						flu_rt = self.selected_stocks_meta.get(stk_cd, {}).get('flu_rt', 0)
-						if flu_rt > 25:
-							overheat_score = (
-								(1 if curr_vol > prev_vol * 1.5 else 0) +
-								(1 if current_price > ma_long_curr else 0) +
-								(1 if rsi is not None and rsi > 65 else 0)
-							)
-							if overheat_score < 2:
-								print(f"{stk_cd}: 과열(flu_rt={flu_rt:.1f}%) 예외조건 {overheat_score}/3 미달 - 매수 스킵")
-								continue
+						if flu_rt > 20:
+							print(f"{stk_cd}: 과열(flu_rt={flu_rt:.1f}% > 20%) - 매수 스킵")
+							continue
 
 						# ── 고점 근접 필터 (장초반 생략, 중반/후반만 적용) ──────
 						if phase != 'early':
@@ -374,6 +374,10 @@ class EntryMixin:
 				if prsm and prsm != '0':
 					total_assets = float(str(prsm).replace(',', ''))
 					log.warning(f'[매수] {stk_cd} kt00004 실패 — 추정예탁자산 {total_assets:,.0f}원 사용')
+				elif self.last_known_assets:
+					# 모의투자 kt00002 미지원 or 429 — 마지막 성공 총자산으로 진행
+					total_assets = self.last_known_assets
+					log.warning(f'[매수] {stk_cd} 계좌 조회 실패 — 캐시 총자산 {total_assets:,.0f}원 사용')
 				else:
 					log.warning(f'[매수] {stk_cd} 계좌 조회 실패 — 매수 취소 (총자산 불명)')
 					tel_send(f"❌ 매수 취소: {stk_cd} (계좌 조회 실패 — 총자산 불명)")
@@ -382,6 +386,7 @@ class EntryMixin:
 				stk_evlt_sum = sum(float(s.get('evlt_amt', '0') or '0') for s in my_stk) if my_stk else 0
 				cash_val = float(aset_evlt_amt) if aset_evlt_amt and aset_evlt_amt != '0' else float(entry)
 				total_assets = cash_val + stk_evlt_sum
+				self.last_known_assets = total_assets  # 성공 시 캐시 갱신
 
 			buy_ratio  = get_setting('buy_ratio', 8.0)
 			buy_amount = total_assets * (buy_ratio / 100.0)

@@ -19,7 +19,7 @@ class StockSelectorMixin:
 		'RISE', 'KBSTAR', 'SOL', 'HANARO', 'ACE',
 	]
 
-	STOCK_REFRESH_INTERVAL       = 10 * 60  # 장 중반/후반 종목 갱신 주기: 10분
+	STOCK_REFRESH_INTERVAL       =  7 * 60  # 장 중반/후반 종목 갱신 주기: 7분
 	EARLY_STOCK_REFRESH_INTERVAL =  2 * 60  # 장 초반 종목 갱신 주기: 2분
 
 	def _is_excluded(self, stk_nm):

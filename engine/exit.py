@@ -153,13 +153,13 @@ class ExitMixin:
 							should_sell = False
 							sell_reason = ''
 
-							# 진입 후 3분 내 -1.2% 이하: 조기 손절
+							# 조기 손절: 1분 보호 → 1~3분 내 반등 없는 경우만
 							entry_dt = self.entry_time.get(stk_cd)
 							if entry_dt:
 								elapsed_min = (datetime.datetime.now() - entry_dt).total_seconds() / 60
-								if elapsed_min <= 3 and pl_rt < -1.2:
+								if 1 < elapsed_min <= 3 and peak < 0.3 and pl_rt < -1.5:
 									should_sell = True
-									sell_reason = f'조기 손절 (진입 후 {elapsed_min:.0f}분, {pl_rt:+.2f}%)'
+									sell_reason = f'조기 손절 (진입 후 {elapsed_min:.1f}분, {pl_rt:+.2f}%)'
 
 							# ORB 손절: max(저점, -2%) 기준 이탈
 							orb_stop_pct = snap.get('orb_stop_pct')

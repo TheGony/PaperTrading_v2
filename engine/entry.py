@@ -223,6 +223,7 @@ class EntryMixin:
 											continue
 
 						# ── 진입 스냅샷 빌드 ────────────────────────────
+						confirm_secs = 2.5 if phase == 'early' else (4.0 if phase == 'mid' else 3.0)
 						meta = self.selected_stocks_meta.get(stk_cd, {})
 						kospi_flu, kosdaq_flu = await asyncio.get_event_loop().run_in_executor(
 							None, fn_get_market_index, self.token
@@ -237,10 +238,10 @@ class EntryMixin:
 							'kospi_flu':       kospi_flu,
 							'kosdaq_flu':      kosdaq_flu,
 							'strategy':        '모멘텀',
+							'confirm_secs':    confirm_secs,
 						}
 
-						# 돌파 유지 확인: phase별 초 동안 가격·거래량 유지
-						confirm_secs = 2.5 if phase == 'early' else (4.0 if phase == 'mid' else 3.0)
+						# 돌파 유지 확인
 						if not await self._confirm_breakout(stk_cd, breakout_high, confirm_secs):
 							continue
 
@@ -265,11 +266,7 @@ class EntryMixin:
 					get_logger().error(f'[차트체크 실패] 최대 재시도 횟수({max_retries}) 초과')
 
 	async def _confirm_breakout(self, stk_cd, breakout_high, confirm_seconds):
-		"""돌파 후 confirm_seconds 동안 3개 조건 유지 확인. True=진입, False=실패/초기화
-		- 조건1: 가격 >= breakout_high * 0.998
-		- 조건2: 가격 > breakout_high (돌파 유지)
-		- 조건3: 거래량 감소 없음 (누적 거래량 기준)
-		"""
+		"""돌파 후 confirm_seconds 동안 cur_prc > breakout_high 유지 확인. True=진입, False=초기화"""
 		log = get_logger()
 		poll_interval = 0.5
 		elapsed = 0.0
@@ -386,6 +383,7 @@ class EntryMixin:
 			'orb_gap':         orb_gap,
 			'orb_overshoot':   orb_overshoot,
 			'strategy':        '장초반ORB',
+			'confirm_secs':    3.0,
 		}
 		# 돌파 유지 확인: 3초 동안 가격·거래량 유지
 		if not await self._confirm_breakout(stk_cd, orb_high, 3.0):

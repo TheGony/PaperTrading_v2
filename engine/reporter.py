@@ -68,7 +68,7 @@ class ReporterMixin:
 			'수익률(%)', 'MFE(%)', 'MAE(%)', '매도사유',
 			'진입가', '진입RSI', '진입등락률(%)', '거래량비율',
 			'선정점수', '외인기관', 'KOSPI등락(%)', 'KOSDAQ등락(%)', '전략',
-			'갭(%)', 'ORB손절기준(%)', '보유시간(분)', 'ORB오버슈트(%)',
+			'갭(%)', 'ORB손절기준(%)', '보유시간(분)', 'ORB오버슈트(%)', '돌파확인(초)',
 		]
 		if os.path.exists(detail_path):
 			# 기존 헤더 확인 후 컬럼 추가된 경우 파일 재작성
@@ -105,6 +105,7 @@ class ReporterMixin:
 					f"{t['orb_stop_pct']:+.2f}"   if t.get('orb_stop_pct')  is not None else '',
 					t.get('held_minutes', ''),
 					f"{t['orb_overshoot']:+.2f}"  if t.get('orb_overshoot') is not None else '',
+					t.get('confirm_secs', ''),
 				])
 
 		# ── daily_summary.csv (날짜별 1행 누적) ──────────────────────────

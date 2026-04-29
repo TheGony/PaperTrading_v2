@@ -107,7 +107,7 @@ class EntryMixin:
 					if stk_cd in self.selected_stocks and stk_cd not in held_stock_codes and stk_cd not in self.entry_time:
 
 						breakout_high = max(prices[1:breakout_bars + 1])
-						if current_price <= breakout_high:
+						if current_price < breakout_high * 0.995:  # 돌파 0.5% 직전부터 허용
 							continue
 
 						# 추격매수 방지: 장초반 2%, 중반/후반 1%
@@ -117,7 +117,7 @@ class EntryMixin:
 
 						# 최근 20봉 고점 0.5% 이내 진입 금지 (꼭대기 진입 방지)
 						recent_high = max(highs[:20]) if len(highs) >= 20 else (max(highs) if highs else 0)
-						if recent_high > 0 and current_price >= recent_high * 0.995:
+						if recent_high > 0 and current_price >= recent_high * 0.99:
 							print(f"{stk_cd}: 최근 고점({recent_high:.0f}) 0.5% 이내 - 매수 스킵")
 							continue
 
@@ -148,27 +148,27 @@ class EntryMixin:
 							if today_open > 0 and current_price <= today_open * 0.98:
 								print(f"{stk_cd}: 현재가({current_price:.0f}) <= 시가({today_open:.0f})×0.98 - 매수 스킵")
 								continue
-							# RSI 45 < x <= 75 (완화)
+							# RSI 45 < x <= 65
 							if rsi is None or rsi <= 45:
 								print(f"{stk_cd}: RSI {rsi_str} <= 45 - 매수 스킵")
 								continue
-							if rsi > 75:
-								print(f"{stk_cd}: RSI {rsi_str} > 75 (과열) - 매수 스킵")
+							if rsi > 65:
+								print(f"{stk_cd}: RSI {rsi_str} > 65 (과열) - 매수 스킵")
 								continue
 
 						elif phase == 'mid':
-							# 거래량 > 직전봉
-							if prev_vol == 0 or curr_vol <= prev_vol:
-								print(f"{stk_cd}: 거래량 미달 (현재 {curr_vol:.0f} <= 직전봉 {prev_vol:.0f}) - 매수 스킵")
+							# 거래량 > 직전봉 × 1.3
+							if prev_vol == 0 or curr_vol <= prev_vol * 1.3:
+								print(f"{stk_cd}: 거래량 미달 (현재 {curr_vol:.0f} <= 직전봉×1.3 {prev_vol*1.3:.0f}) - 매수 스킵")
 								continue
-							# RSI > 55 OR 현재가 > MA20, AND RSI <= 65
-							rsi_ok = rsi is not None and rsi > 55
+							# RSI > 50 OR 현재가 > MA20, AND RSI <= 60
+							rsi_ok = rsi is not None and rsi > 50
 							ma_ok  = current_price > ma_long_curr
 							if not (rsi_ok or ma_ok):
-								print(f"{stk_cd}: RSI {rsi_str} <= 55 AND 현재가({current_price:.0f}) <= MA{chart_long}({ma_long_curr:.1f}) - 매수 스킵")
+								print(f"{stk_cd}: RSI {rsi_str} <= 50 AND 현재가({current_price:.0f}) <= MA{chart_long}({ma_long_curr:.1f}) - 매수 스킵")
 								continue
-							if rsi is not None and rsi > 65:
-								print(f"{stk_cd}: RSI {rsi_str} > 65 (과열) - 매수 스킵")
+							if rsi is not None and rsi > 60:
+								print(f"{stk_cd}: RSI {rsi_str} > 60 (과열) - 매수 스킵")
 								continue
 
 						else:  # late
@@ -176,12 +176,12 @@ class EntryMixin:
 							if prev_vol == 0 or curr_vol <= prev_vol:
 								print(f"{stk_cd}: 거래량 미달 (현재 {curr_vol:.0f} <= 직전봉 {prev_vol:.0f}) - 매수 스킵")
 								continue
-							# RSI 60 < x <= 63
-							if rsi is None or rsi <= 60:
-								print(f"{stk_cd}: RSI {rsi_str} <= 60 - 매수 스킵")
+							# RSI 58 < x <= 62
+							if rsi is None or rsi <= 58:
+								print(f"{stk_cd}: RSI {rsi_str} <= 58 - 매수 스킵")
 								continue
-							if rsi > 63:
-								print(f"{stk_cd}: RSI {rsi_str} > 63 (과열) - 매수 스킵")
+							if rsi > 62:
+								print(f"{stk_cd}: RSI {rsi_str} > 62 (과열) - 매수 스킵")
 								continue
 							# 현재가 > MA20
 							if current_price <= ma_long_curr:
@@ -229,9 +229,10 @@ class EntryMixin:
 							'strategy':        '모멘텀',
 						}
 
+						gap_to_high = (current_price / breakout_high - 1) * 100
 						signal_info = (
-							f"📈 [{self._phase_name(phase)}] 고점 돌파 진입: {stk_cd}\n"
-							f"   현재가: {current_price:.0f} > 직전{breakout_bars}봉 고점: {breakout_high:.0f}\n"
+							f"📈 [{self._phase_name(phase)}] 고점 근접 진입: {stk_cd}\n"
+							f"   현재가: {current_price:.0f} | 직전{breakout_bars}봉 고점: {breakout_high:.0f} ({gap_to_high:+.1f}%)\n"
 							f"   RSI: {rsi_str} | 거래량: {curr_vol:.0f} (직전봉: {prev_vol:.0f})"
 						)
 						bought = await self._buy_stock(stk_cd, current_price, signal_info=signal_info, snapshot=entry_snapshot)

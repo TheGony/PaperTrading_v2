@@ -23,18 +23,24 @@ class TraderMixin:
 		try:
 			await self._wait_for_market_start_plus_one_minute()
 
-			# ORB 전용 후보 선정 (09:01, 1회 고정 — 이후 갱신 없음)
+			# ORB 전용 후보 선정 1차 (09:01)
 			await self._get_orb_candidates()
 
 			# 모멘텀 후보 선정 (실패해도 루프는 유지 - 다음 갱신 주기에 재시도)
 			await self._select_initial_stocks()
 
-			last_refresh_time = datetime.datetime.now()
+			last_refresh_time  = datetime.datetime.now()
 			self.current_phase = MarketHour.get_market_phase()
+			orb_refreshed      = False  # ORB 2차 갱신(09:03) 완료 여부
 
 			while self.is_running and MarketHour.is_market_open_time():
 				now   = datetime.datetime.now()
 				phase = MarketHour.get_market_phase()
+
+				# ── ORB 2차 갱신 (09:03) ────────────────────────
+				if not orb_refreshed and now.time() >= datetime.time(9, 3):
+					await self._get_orb_candidates(is_refresh=True)
+					orb_refreshed = True
 
 				# ── 구간 전환 감지 ──────────────────────────────
 				if phase != self.current_phase:

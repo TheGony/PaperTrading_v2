@@ -19,7 +19,7 @@ class StockSelectorMixin:
 		'RISE', 'KBSTAR', 'SOL', 'HANARO', 'ACE',
 	]
 
-	STOCK_REFRESH_INTERVAL       =  7 * 60  # 장 중반/후반 종목 갱신 주기: 7분
+	STOCK_REFRESH_INTERVAL       =  5 * 60  # 장 중반/후반 종목 갱신 주기: 5분
 	EARLY_STOCK_REFRESH_INTERVAL =  2 * 60  # 장 초반 종목 갱신 주기: 2분
 
 	def _is_excluded(self, stk_nm):
@@ -247,9 +247,9 @@ class StockSelectorMixin:
 		chart_short = get_setting('chart_short', 5)
 		chart_long  = get_setting('chart_long', 20)
 		phase_strategy = {
-			'early': f"직전 3봉 돌파 + 거래량↑ + 시가↑ + RSI>50 | 손절 -2% / 트레일링 2%",
-			'mid':   f"직전 5봉 돌파 + 거래량↑ + (RSI>55 OR MA{chart_long}↑) | 손절 -3% / 트레일링 3.5%",
-			'late':  f"직전 5봉 돌파 + 거래량↑ + RSI>60 + MA{chart_long}↑ | 손절 -3% / 트레일링 2.5%",
+			'early': f"직전 3봉 고점 0.5% 이내 진입 + 거래량≥1.5x + 시가×0.98↑ + RSI 45~65 | 손절 -2% / 트레일링 2%",
+			'mid':   f"직전 5봉 고점 0.5% 이내 진입 + 거래량>1.3x + (RSI>50 OR MA{chart_long}↑) + RSI≤60 | 손절 -3% / 트레일링 3.5%",
+			'late':  f"직전 5봉 고점 0.5% 이내 진입 + 거래량↑ + RSI 58~62 + MA{chart_long}↑ | 손절 -3% / 트레일링 2.5%",
 		}
 		tel_send(
 			f"✅ [{self._phase_name(phase)}] 초기 종목 선정 완료\n"
@@ -259,7 +259,7 @@ class StockSelectorMixin:
 		return True
 
 	async def _refresh_selected_stocks(self, phase=None):
-		"""종목 갱신 (초반 2분 / 중반·후반 10분 주기)"""
+		"""종목 갱신 (초반 2분 / 중반·후반 5분 주기) — 전 phase 점수 비교 후 선택적 교체"""
 		try:
 			if phase is None:
 				phase = MarketHour.get_market_phase()
@@ -270,38 +270,74 @@ class StockSelectorMixin:
 				return
 
 			exclusion_set = await self._get_exclusion_set()
-			if exclusion_set:
-				before = len(ranked_stocks)
-				ranked_stocks = [s for s in ranked_stocks if s['stk_cd'] not in exclusion_set]
-				if len(ranked_stocks) < before:
-					get_logger().info(f'[종목갱신] 제외: {exclusion_set} ({before}→{len(ranked_stocks)}개)')
+			stock_count   = get_setting('stock_count', 10)
 
-			new_stocks = [s['stk_cd'] for s in ranked_stocks]
-			new_names  = {s['stk_cd']: s.get('stk_nm', s['stk_cd']) for s in ranked_stocks}
-			new_meta   = {
+			# 새로 조회된 후보 맵 (제외 종목 필터링)
+			new_map = {s['stk_cd']: s for s in ranked_stocks if s['stk_cd'] not in exclusion_set}
+
+			# ── 점수 비교 기반 병합 ───────────────────────────────
+			# 기존 선정 종목: 새 점수로 갱신 or 기존 점수 유지 (한 사이클 버팀)
+			merged_pool = {}
+			for cd in self.selected_stocks:
+				if cd in exclusion_set:
+					continue
+				if cd in new_map:
+					merged_pool[cd] = new_map[cd]           # 새 점수로 갱신
+				else:
+					old = self.selected_stocks_meta.get(cd, {})
+					merged_pool[cd] = {                     # 기존 점수 유지
+						'stk_cd':     cd,
+						'stk_nm':     self.selected_stocks_names.get(cd, cd),
+						'score':      old.get('score', 0),
+						'flu_rt':     old.get('flu_rt', 0),
+						'is_foreign': old.get('is_foreign', False),
+					}
+
+			# 신규 후보: 기존에 없던 종목만 추가
+			for cd, s in new_map.items():
+				if cd not in merged_pool:
+					merged_pool[cd] = s
+
+			# 점수 기준 상위 stock_count 선정
+			final_stocks = sorted(merged_pool.values(), key=lambda x: x['score'], reverse=True)[:stock_count]
+			new_stocks   = [s['stk_cd'] for s in final_stocks]
+			new_names    = {s['stk_cd']: s.get('stk_nm', s['stk_cd']) for s in final_stocks}
+			new_meta     = {
 				s['stk_cd']: {
 					'flu_rt':     s.get('flu_rt', 0),
 					'score':      s.get('score', 0),
 					'is_foreign': s.get('is_foreign', False),
-				} for s in ranked_stocks
+				} for s in final_stocks
 			}
 
 			added   = [s for s in new_stocks if s not in self.selected_stocks]
 			removed = [s for s in self.selected_stocks if s not in new_stocks]
 
-			self.selected_stocks_names.update(new_names)
-			self.selected_stocks_meta = new_meta
-			self.selected_stocks = new_stocks
+			# state 업데이트 전에 메시지 빌드 (편출 종목의 old 점수 접근)
+			final_map = {s['stk_cd']: s for s in final_stocks}
+
+			def _with_score(codes, src):
+				parts = []
+				for cd in codes:
+					nm    = src.get(cd, {}).get('stk_nm') or self.selected_stocks_names.get(cd, cd)
+					score = src.get(cd, {}).get('score', 0)
+					parts.append(f"{nm}({cd}, {score:.2f})")
+				return ', '.join(parts)
 
 			if added or removed:
 				msg = f"🔄 [{self._phase_name(phase)}] 종목 갱신\n"
 				if added:
-					msg += f"   신규 편입: {self._fmt_stocks(added)}\n"
+					msg += f"   신규 편입: {_with_score(added, final_map)}\n"
 				if removed:
-					msg += f"   편출: {self._fmt_stocks(removed)}\n"
+					msg += f"   편출: {_with_score(removed, self.selected_stocks_meta)}\n"
 				msg += f"   현재 선정: {self._fmt_stocks(new_stocks)}"
 			else:
-				msg = f"🔄 [{self._phase_name(phase)}] 종목 갱신 완료 (변경 없음)\n   선정 종목: {self._fmt_stocks(new_stocks)}"
+				msg = f"🔄 [{self._phase_name(phase)}] 종목 유지 (점수 기준 변경 없음)\n   선정 종목: {self._fmt_stocks(new_stocks)}"
+
+			self.selected_stocks_names.update(new_names)
+			self.selected_stocks_meta = new_meta
+			self.selected_stocks      = new_stocks
+
 			tel_send(msg)
 
 		except Exception as e:

@@ -9,8 +9,8 @@ class OrbSelectorMixin:
 	ORB_CANDIDATES_MAX = 15
 	ORB_MIN_CANDIDATES = 5
 
-	async def _get_orb_candidates(self):
-		"""ORB 전용 후보 선정. 장 시작 직후 1회만 호출. 결과를 self.orb_candidates에 저장."""
+	async def _get_orb_candidates(self, is_refresh=False):
+		"""ORB 전용 후보 선정. 결과를 self.orb_candidates에 저장."""
 		log = get_logger()
 
 		# 거래대금 상위 50개 (메인) + 거래량급증 50개 (보조 — sdnin_rt 확보)
@@ -126,7 +126,8 @@ class OrbSelectorMixin:
 				tel_send(f"⚠️ [ORB] 후보 부족 → 거래대금 상위 {added}종목 보충 (총 {len(candidates)}종목)")
 
 		if not candidates:
-			tel_send("⚠️ [ORB] 조건을 충족하는 후보 없음")
+			label = "2차 갱신" if is_refresh else "선정"
+			tel_send(f"⚠️ [ORB] 조건을 충족하는 후보 없음 ({label})")
 			self.orb_candidates = []
 			return []
 
@@ -138,6 +139,7 @@ class OrbSelectorMixin:
 			else f"{c['stk_nm']}({c['stk_cd']}) gap=N/A"
 			for c in self.orb_candidates
 		)
-		tel_send(f"✅ [ORB] 후보 {len(self.orb_candidates)}종목 선정\n   {names}")
+		label = "2차 갱신" if is_refresh else "선정"
+		tel_send(f"✅ [ORB] 후보 {len(self.orb_candidates)}종목 {label}\n   {names}")
 		log.info(f'[ORB 선정] {names}')
 		return self.orb_candidates

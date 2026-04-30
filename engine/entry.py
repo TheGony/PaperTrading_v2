@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import datetime
 from api.chart import fn_ka10080, fn_ka10080_full
 from api.account import fn_kt00004, fn_kt00001, fn_kt00002
@@ -78,7 +78,7 @@ class EntryMixin:
 
 					# 데이터 유효성 검사
 					if len(prices) < needed or any(p == 0.0 for p in prices):
-						print(f"{stk_cd}: 데이터 부족 또는 유효하지 않음 ({len(prices)}/{needed}개)")
+						print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: 데이터 부족 또는 유효하지 않음 ({len(prices)}/{needed}개)")
 						continue
 
 					current_price = prices[0]
@@ -110,7 +110,7 @@ class EntryMixin:
 							)
 							await self._sell_stock(stk_cd, '데드크로스', signal_info=signal_info)
 						else:
-							print(f"{stk_cd}: 데드크로스 감지 but RSI {f'{rsi_exit:.1f}' if rsi_exit else 'N/A'} >= 45 - 청산 보류")
+							print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: 데드크로스 감지 but RSI {f'{rsi_exit:.1f}' if rsi_exit else 'N/A'} >= 45 - 청산 보류")
 
 					# ── 진입 (phase별 조건) ──────────────────────────
 					if stk_cd in self.selected_stocks and stk_cd not in held_stock_codes and stk_cd not in self.entry_time:
@@ -120,12 +120,12 @@ class EntryMixin:
 						# 추격매수 방지: 장초반 2%, 중반/후반 1.5%
 						chase_limit = 1.02 if phase == 'early' else 1.015
 						if current_price > breakout_high * chase_limit:
-							print(f"{stk_cd} 탈락: 추격매수 방지 (현재가 {current_price:.0f} > 고점×{chase_limit} {breakout_high*chase_limit:.0f})")
+							print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd} 탈락: 추격매수 방지 (현재가 {current_price:.0f} > 고점×{chase_limit} {breakout_high*chase_limit:.0f})")
 							continue
 
 						# 실제 돌파 미발생이면 대기 (0.995~1.0 구간은 준비 상태만)
 						if current_price <= breakout_high:
-							print(f"{stk_cd} 탈락: 돌파 미발생 (현재가 {current_price:.0f} ≤ 고점 {breakout_high:.0f})")
+							print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd} 탈락: 돌파 미발생 (현재가 {current_price:.0f} ≤ 고점 {breakout_high:.0f})")
 							continue
 
 						# 쿨다운: 매도 후 20분 이내 재매수 금지
@@ -133,7 +133,7 @@ class EntryMixin:
 						if last_sell:
 							elapsed = (datetime.datetime.now() - last_sell).total_seconds() / 60
 							if elapsed < cooldown_minutes:
-								print(f"{stk_cd}: 쿨다운 중 ({elapsed:.0f}/{cooldown_minutes}분) - 매수 스킵")
+								print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: 쿨다운 중 ({elapsed:.0f}/{cooldown_minutes}분) - 매수 스킵")
 								continue
 
 						curr_vol = volumes[0] if len(volumes) > 0 else 0
@@ -146,66 +146,66 @@ class EntryMixin:
 						if phase == 'early':
 							# 최대 5회 진입 제한
 							if self.early_buy_count >= 5:
-								print(f"{stk_cd}: 장초반 최대 매수 5회 초과 - 매수 스킵")
+								print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: 장초반 최대 매수 5회 초과 - 매수 스킵")
 								continue
 							# 거래량 > 직전봉 × 1.5 (폭발적 증가만 허용)
 							if prev_vol == 0 or curr_vol < prev_vol * 1.5:
-								print(f"{stk_cd}: 거래량 미달 (현재 {curr_vol:.0f} < 직전봉×1.5 {prev_vol*1.5:.0f}) - 매수 스킵")
+								print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: 거래량 미달 (현재 {curr_vol:.0f} < 직전봉×1.5 {prev_vol*1.5:.0f}) - 매수 스킵")
 								continue
 							# 현재가 > 시가 × 0.98 (-2% 눌림 허용)
 							today_open = open_prices[-1] if open_prices and open_prices[-1] > 0 else 0
 							if today_open > 0 and current_price <= today_open * 0.98:
-								print(f"{stk_cd}: 현재가({current_price:.0f}) <= 시가({today_open:.0f})×0.98 - 매수 스킵")
+								print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: 현재가({current_price:.0f}) <= 시가({today_open:.0f})×0.98 - 매수 스킵")
 								continue
 							# RSI 40 <= x <= 70
 							if rsi is None or rsi < 40:
-								print(f"{stk_cd}: RSI {rsi_str} < 40 - 매수 스킵")
+								print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: RSI {rsi_str} < 40 - 매수 스킵")
 								continue
 							if rsi > 70:
-								print(f"{stk_cd}: RSI {rsi_str} > 70 (과열) - 매수 스킵")
+								print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: RSI {rsi_str} > 70 (과열) - 매수 스킵")
 								continue
 
 						elif phase == 'mid':
 							# RSI 45 <= x <= 70 AND RSI >= prev_RSI (상승 중)
 							if rsi is None or rsi < 45:
-								print(f"{stk_cd}: RSI {rsi_str} < 45 - 매수 스킵")
+								print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: RSI {rsi_str} < 45 - 매수 스킵")
 								continue
 							if rsi > 70:
-								print(f"{stk_cd}: RSI {rsi_str} > 70 (과열) - 매수 스킵")
+								print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: RSI {rsi_str} > 70 (과열) - 매수 스킵")
 								continue
 							if prev_rsi is not None and rsi < prev_rsi * 0.98:
-								print(f"{stk_cd}: RSI 하락 중 ({prev_rsi:.1f}→{rsi_str}) - 매수 스킵")
+								print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: RSI 하락 중 ({prev_rsi:.1f}→{rsi_str}) - 매수 스킵")
 								continue
 
 						else:  # late
 							# 거래량 > 직전봉
 							if prev_vol == 0 or curr_vol <= prev_vol:
-								print(f"{stk_cd}: 거래량 미달 (현재 {curr_vol:.0f} <= 직전봉 {prev_vol:.0f}) - 매수 스킵")
+								print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: 거래량 미달 (현재 {curr_vol:.0f} <= 직전봉 {prev_vol:.0f}) - 매수 스킵")
 								continue
 							# RSI 50 <= x <= 60 AND RSI >= prev_RSI (상승 중)
 							if rsi is None or rsi < 50:
-								print(f"{stk_cd}: RSI {rsi_str} < 50 - 매수 스킵")
+								print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: RSI {rsi_str} < 50 - 매수 스킵")
 								continue
 							if rsi > 60:
-								print(f"{stk_cd}: RSI {rsi_str} > 60 (과열) - 매수 스킵")
+								print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: RSI {rsi_str} > 60 (과열) - 매수 스킵")
 								continue
 							if prev_rsi is not None and rsi < prev_rsi:
-								print(f"{stk_cd}: RSI 하락 중 ({prev_rsi:.1f}→{rsi_str}) - 매수 스킵")
+								print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: RSI 하락 중 ({prev_rsi:.1f}→{rsi_str}) - 매수 스킵")
 								continue
 							# 현재가 > MA20
 							if current_price <= ma_long_curr:
-								print(f"{stk_cd}: 현재가({current_price:.0f}) <= MA{chart_long}({ma_long_curr:.1f}) - 매수 스킵")
+								print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: 현재가({current_price:.0f}) <= MA{chart_long}({ma_long_curr:.1f}) - 매수 스킵")
 								continue
 
 						# ── 당일 2회 손실 종목 진입 금지 ────────────────
 						if self.daily_loss_count.get(stk_cd, 0) >= 2:
-							print(f"{stk_cd}: 당일 손실 {self.daily_loss_count[stk_cd]}회 - 금일 거래 금지")
+							print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: 당일 손실 {self.daily_loss_count[stk_cd]}회 - 금일 거래 금지")
 							continue
 
 						# ── 과열 종목 진입 금지 (등락률 > 20%) ────────
 						flu_rt = self.selected_stocks_meta.get(stk_cd, {}).get('flu_rt', 0)
 						if flu_rt > 20:
-							print(f"{stk_cd}: 과열(flu_rt={flu_rt:.1f}% > 20%) - 매수 스킵")
+							print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: 과열(flu_rt={flu_rt:.1f}% > 20%) - 매수 스킵")
 							continue
 
 						# ── 고점 근접 필터 (장초반 생략, 중반/후반만 적용) ──────
@@ -218,7 +218,7 @@ class EntryMixin:
 								if intraday_high and intraday_high > 0:
 									if current_price >= intraday_high * 0.98:
 										if curr_vol <= prev_vol * 1.7:
-											print(f"{stk_cd}: 고점({intraday_high:.0f}) 근접+거래량 미달 - 매수 스킵")
+											print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: 고점({intraday_high:.0f}) 근접+거래량 미달 - 매수 스킵")
 											continue
 
 						# ── 진입 스냅샷 빌드 ────────────────────────────

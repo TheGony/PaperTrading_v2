@@ -114,7 +114,7 @@ class StockSelectorMixin:
 		else:  # mid / late
 			# ── 1. API 조회 (50개) ────────────────────────────
 			raw = await asyncio.get_event_loop().run_in_executor(
-				None, fn_ka10023, 50, 'N', '', self.token
+				None, fn_ka10023, 30, 'N', '', self.token
 			)
 			if not raw:
 				return []

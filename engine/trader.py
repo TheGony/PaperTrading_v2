@@ -7,21 +7,20 @@ from util.login import fn_au10001
 
 
 class TraderMixin:
-	async def _wait_for_market_start_plus_one_minute(self):
-		"""장 시작 후 1분까지 대기"""
+	async def _wait_for_market_start(self):
+		"""장 시작 전이면 장 시작까지만 대기 (시작 후면 즉시 진행)"""
 		now          = datetime.datetime.now()
 		market_start = now.replace(hour=MarketHour.MARKET_START_HOUR, minute=MarketHour.MARKET_START_MINUTE, second=0, microsecond=0)
-		wait_until   = market_start + datetime.timedelta(minutes=1)
 
-		if now < wait_until:
-			wait_seconds = (wait_until - now).total_seconds()
-			print(f"장 시작 1분 후까지 {wait_seconds}초 대기...")
+		if now < market_start:
+			wait_seconds = (market_start - now).total_seconds()
+			print(f"장 시작까지 {wait_seconds:.0f}초 대기...")
 			await asyncio.sleep(wait_seconds)
 
 	async def _trading_loop(self):
 		"""트레이딩 로직을 실행하는 백그라운드 루프"""
 		try:
-			await self._wait_for_market_start_plus_one_minute()
+			await self._wait_for_market_start()
 
 			# ORB 전용 후보 선정 1차 (09:01) — early phase 한정
 			if MarketHour.get_market_phase() == 'early':

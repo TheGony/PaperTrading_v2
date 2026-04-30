@@ -39,10 +39,10 @@ class EntryMixin:
 					continue
 				held_stock_codes = [stock['stk_cd'].replace('A', '') for stock in my_stocks]
 
-				# ── ORB 진입 루프 (09:05~09:25, orb_candidates 전용) ──────────
+				# ── ORB 진입 루프 (09:05~, early phase 전용) ──────────
 				if phase == 'early' and self.orb_candidates:
 					now_time = datetime.datetime.now().time()
-					if datetime.time(9, 5) <= now_time <= datetime.time(9, 25):
+					if now_time >= datetime.time(9, 5):
 						for orb_stock in self.orb_candidates:
 							stk_cd_orb = orb_stock['stk_cd']
 							if stk_cd_orb in held_stock_codes or stk_cd_orb in self.entry_time:

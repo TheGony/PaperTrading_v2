@@ -99,7 +99,7 @@ class StockSelectorMixin:
 				if not prices or len(prices) < 2:
 					continue
 				today_open = open_prices[-1] if open_prices and open_prices[-1] > 0 else 0
-				if today_open > 0 and prices[0] <= today_open:
+				if today_open > 0 and prices[0] <= today_open * 0.99:
 					continue
 				scored.append({**s, 'score': early_score(s['stk_cd'], trade_rank)})
 
@@ -123,11 +123,11 @@ class StockSelectorMixin:
 			raw = [s for s in raw if not self._is_excluded(s.get('stk_nm', ''))]
 			raw = [s for s in raw if s.get('flu_rt', 0) <= 25]
 
-			# ── 3. 1차 필터 (완화): 등락률 ≥ +0.5%, 거래량급증률 ≥ 150% ──
+			# ── 3. 1차 필터 (완화): 등락률 ≥ +0.3%, 거래량급증률 ≥ 120% ──
 			filtered = [
 				s for s in raw
-				if s.get('flu_rt', 0) >= 0.5
-				and s.get('sdnin_rt', 0) >= 150
+				if s.get('flu_rt', 0) >= 0.3
+				and s.get('sdnin_rt', 0) >= 120
 			]
 			pool = filtered if filtered else raw
 
@@ -136,7 +136,7 @@ class StockSelectorMixin:
 				None, fn_ka90009, 'N', '', self.token
 			)
 
-			# ── 5. 차트: 현재가 > MA20 필터 → 후보 수집 ─────────
+			# ── 5. 차트: MA20 필터(late만 적용) → 후보 수집 ─────────
 			candidates = []
 			for s in pool:
 				prices, _, _, _ = await asyncio.get_event_loop().run_in_executor(
@@ -150,7 +150,7 @@ class StockSelectorMixin:
 				ma20 = self._calc_ma(prices, chart_long)
 				rsi  = self._calc_rsi(prices, rsi_period)
 
-				if ma20 is None or current_price <= ma20:
+				if phase == 'late' and (ma20 is None or current_price <= ma20):
 					continue
 
 				candidates.append({
@@ -244,11 +244,10 @@ class StockSelectorMixin:
 			} for s in ranked_stocks
 		}
 
-		chart_short = get_setting('chart_short', 5)
 		chart_long  = get_setting('chart_long', 20)
 		phase_strategy = {
-			'early': f"직전 3봉 고점 돌파 확인(2.5초) + 거래량≥1.5x + 시가×0.98↑ + RSI 40~70 | 손절 -2% / 트레일링 2%",
-			'mid':   f"직전 5봉 고점 돌파 확인(4초) + 거래량>1.3x + RSI 45~65 + RSI상승 | 손절 -3% / 트레일링 3.5%",
+			'early': f"직전 3봉 고점 돌파 확인(2.5초) + 거래량≥1.5x + 시가×0.99↑ + RSI 40~70 | 손절 -2% / 트레일링 2%",
+			'mid':   f"직전 5봉 고점 돌파 확인(3초) + RSI 45~70 + RSI상승 | 손절 -3% / 트레일링 3.5%",
 			'late':  f"직전 5봉 고점 돌파 확인(3초) + 거래량↑ + RSI 50~60 + RSI상승 + MA{chart_long}↑ | 손절 -3% / 트레일링 2.5%",
 		}
 		tel_send(

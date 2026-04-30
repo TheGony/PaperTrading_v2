@@ -11,6 +11,21 @@ from util.logger import get_logger
 
 
 class EntryMixin:
+	_CHART_CACHE_TTL = 55  # 초 (1분봉 갱신 주기보다 짧게, 실전 시 0으로 설정하면 캐시 비활성화)
+
+	async def _get_chart(self, stk_cd, needed):
+		"""ka10080 조회 with 캐시. 캐시 TTL 내 동일 종목 재요청 시 API 호출 생략."""
+		now    = datetime.datetime.now()
+		cached = self._chart_cache.get(stk_cd)
+		if cached and (now - cached['ts']).total_seconds() < self._CHART_CACHE_TTL:
+			return cached['data']
+		data = await asyncio.get_event_loop().run_in_executor(
+			None, fn_ka10080, stk_cd, needed, 'N', '', self.token
+		)
+		await asyncio.sleep(1.0)
+		self._chart_cache[stk_cd] = {'ts': now, 'data': data}
+		return data
+
 	async def _check_charts_and_trade(self):
 		"""1분봉 기준 고점 돌파 진입 / 데드크로스+RSI 청산 (phase 기반)"""
 		max_retries = 5
@@ -47,10 +62,7 @@ class EntryMixin:
 							stk_cd_orb = orb_stock['stk_cd']
 							if stk_cd_orb in held_stock_codes or stk_cd_orb in self.entry_time:
 								continue
-							p_orb, v_orb, _, _ = await asyncio.get_event_loop().run_in_executor(
-								None, fn_ka10080, stk_cd_orb, needed, 'N', '', self.token
-							)
-							await asyncio.sleep(0.3)
+							p_orb, v_orb, _, _ = await self._get_chart(stk_cd_orb, needed)
 							if len(p_orb) < needed or any(p == 0.0 for p in p_orb):
 								continue
 							rsi_orb = self._calc_rsi(p_orb, rsi_period)
@@ -62,10 +74,7 @@ class EntryMixin:
 
 				for stk_cd in stocks_to_check:
 					# 1분봉 데이터 조회 (needed개, 최신순) - 종가 + 거래량 + 시가 + 고가
-					prices, volumes, open_prices, _ = await asyncio.get_event_loop().run_in_executor(
-						None, fn_ka10080, stk_cd, needed, 'N', '', self.token
-					)
-					await asyncio.sleep(0.3)  # API 호출 간격
+					prices, volumes, open_prices, _ = await self._get_chart(stk_cd, needed)
 
 					# 데이터 유효성 검사
 					if len(prices) < needed or any(p == 0.0 for p in prices):
@@ -107,9 +116,6 @@ class EntryMixin:
 					if stk_cd in self.selected_stocks and stk_cd not in held_stock_codes and stk_cd not in self.entry_time:
 
 						breakout_high = max(prices[1:breakout_bars + 1])
-						if current_price < breakout_high * 0.995:  # 돌파 0.5% 직전부터 허용
-							print(f"{stk_cd} 탈락: 돌파 미접근 (현재가 {current_price:.0f} < 고점×0.995 {breakout_high*0.995:.0f})")
-							continue
 
 						# 추격매수 방지: 장초반 2%, 중반/후반 1.5%
 						chase_limit = 1.02 if phase == 'early' else 1.015

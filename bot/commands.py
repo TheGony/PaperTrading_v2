@@ -374,7 +374,7 @@ class BotCommandsMixin:
     쿨다운: 매도 후 20분간 동일 종목 재매수 금지
   공통 청산: 데드크로스(MA{chart_short} < MA{chart_long}) AND RSI < 45
   공통 손절: 수익률 ≤ {slr}% 즉시 매도
-  조기 손절: 진입 2분 이내 수익률 < -0.8% 시 즉시 매도
+  조기 손절: 진입 2분 이내 수익률 < -1.2% 시 즉시 매도
   트레일링 (4단계):
     peak ≥ 7%  → gap 1.5% / peak ≥ 4%  → gap 2.0%
     peak ≥ 2%  → gap 2.5% / peak < 2%   → phase 기본값

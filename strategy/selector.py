@@ -312,7 +312,10 @@ class StockSelectorMixin:
 			added   = [s for s in new_stocks if s not in self.selected_stocks]
 			removed = [s for s in self.selected_stocks if s not in new_stocks]
 
-			# state 업데이트 전에 메시지 빌드 (편출 종목의 old 점수 접근)
+			# 이름 먼저 갱신 (메시지 빌드 시 신규 편입 종목 이름 조회 가능하도록)
+			self.selected_stocks_names.update(new_names)
+
+			# 메시지 빌드 (편출 종목 점수는 아직 교체 전 meta에서 접근)
 			final_map = {s['stk_cd']: s for s in final_stocks}
 
 			def _with_score(codes, src):
@@ -333,7 +336,6 @@ class StockSelectorMixin:
 			else:
 				msg = f"🔄 [{self._phase_name(phase)}] 종목 유지 (점수 기준 변경 없음)\n   선정 종목: {self._fmt_stocks(new_stocks)}"
 
-			self.selected_stocks_names.update(new_names)
 			self.selected_stocks_meta = new_meta
 			self.selected_stocks      = new_stocks
 

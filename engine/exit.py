@@ -157,7 +157,7 @@ class ExitMixin:
 							entry_dt = self.entry_time.get(stk_cd)
 							if entry_dt:
 								elapsed_min = (datetime.datetime.now() - entry_dt).total_seconds() / 60
-								if elapsed_min <= 2 and pl_rt < -0.8:
+								if elapsed_min <= 2 and pl_rt < -1.2:
 									should_sell = True
 									sell_reason = f'조기 손절 (진입 후 {elapsed_min:.1f}분, {pl_rt:+.2f}%)'
 

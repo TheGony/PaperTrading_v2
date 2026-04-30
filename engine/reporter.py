@@ -57,6 +57,10 @@ class ReporterMixin:
 		self.trade_log.append(record)
 		if pl_rt < 0:
 			self.daily_loss_count[stk_cd] = self.daily_loss_count.get(stk_cd, 0) + 1
+			if self.daily_loss_count[stk_cd] >= 2 and stk_cd in self.selected_stocks:
+				self.selected_stocks.remove(stk_cd)
+				self.needs_stock_refresh = True
+				get_logger().info(f'[종목제외] {stk_cd} 당일 손실 2회 → 선정 목록 즉시 제거, 보충 갱신 예약')
 
 	def _write_csv(self, today, summary):
 		os.makedirs(self.LOG_DIR, exist_ok=True)

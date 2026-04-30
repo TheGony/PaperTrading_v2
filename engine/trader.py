@@ -56,7 +56,13 @@ class TraderMixin:
 						await self._select_initial_stocks()
 					last_refresh_time = now
 
-				# ── 주기 갱신 (장 초반 2분 / 장 중반·후반 10분) ──
+				# ── 종목 즉시 보충 (daily_loss_count 2회 제거 후) ──
+				elif self.needs_stock_refresh:
+					self.needs_stock_refresh = False
+					await self._refresh_selected_stocks(phase=phase)
+					last_refresh_time = now
+
+				# ── 주기 갱신 (장 초반 2분 / 장 중반·후반 5분) ──
 				else:
 					refresh_interval = self.EARLY_STOCK_REFRESH_INTERVAL if phase == 'early' else self.STOCK_REFRESH_INTERVAL
 					if (now - last_refresh_time).total_seconds() >= refresh_interval:

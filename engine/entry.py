@@ -29,7 +29,7 @@ class EntryMixin:
 				breakout_bars = 3 if phase == 'early' else 5
 
 				# 보유 종목 확인
-				my_stocks, _, _ = await asyncio.get_event_loop().run_in_executor(
+				my_stocks, aset_evlt_amt_cache, _ = await asyncio.get_event_loop().run_in_executor(
 					None, fn_kt00004, False, 'N', '', self.token
 				)
 				if my_stocks is None:
@@ -55,14 +55,14 @@ class EntryMixin:
 								continue
 							rsi_orb = self._calc_rsi(p_orb, rsi_period)
 							rsi_s_orb = f"{rsi_orb:.1f}" if rsi_orb is not None else "N/A"
-							await self._try_orb_entry(stk_cd_orb, p_orb[0], p_orb, v_orb, rsi_orb, rsi_s_orb)
+							await self._try_orb_entry(stk_cd_orb, p_orb[0], p_orb, v_orb, rsi_orb, rsi_s_orb, acnt_cache=(my_stocks, aset_evlt_amt_cache))
 
 				# 체크할 종목 (선정된 종목 + 보유 종목)
 				stocks_to_check = list(set(self.selected_stocks + held_stock_codes))
 
 				for stk_cd in stocks_to_check:
 					# 1분봉 데이터 조회 (needed개, 최신순) - 종가 + 거래량 + 시가 + 고가
-					prices, volumes, open_prices, highs = await asyncio.get_event_loop().run_in_executor(
+					prices, volumes, open_prices, _ = await asyncio.get_event_loop().run_in_executor(
 						None, fn_ka10080, stk_cd, needed, 'N', '', self.token
 					)
 					await asyncio.sleep(0.3)  # API 호출 간격
@@ -108,21 +108,18 @@ class EntryMixin:
 
 						breakout_high = max(prices[1:breakout_bars + 1])
 						if current_price < breakout_high * 0.995:  # 돌파 0.5% 직전부터 허용
+							print(f"{stk_cd} 탈락: 돌파 미접근 (현재가 {current_price:.0f} < 고점×0.995 {breakout_high*0.995:.0f})")
 							continue
 
-						# 추격매수 방지: 장초반 2%, 중반/후반 1%
-						chase_limit = 1.02 if phase == 'early' else 1.01
+						# 추격매수 방지: 장초반 2%, 중반/후반 1.5%
+						chase_limit = 1.02 if phase == 'early' else 1.015
 						if current_price > breakout_high * chase_limit:
+							print(f"{stk_cd} 탈락: 추격매수 방지 (현재가 {current_price:.0f} > 고점×{chase_limit} {breakout_high*chase_limit:.0f})")
 							continue
 
 						# 실제 돌파 미발생이면 대기 (0.995~1.0 구간은 준비 상태만)
 						if current_price <= breakout_high:
-							continue
-
-						# 최근 20봉 고점 0.5% 이내 진입 금지 (꼭대기 진입 방지)
-						recent_high = max(highs[:20]) if len(highs) >= 20 else (max(highs) if highs else 0)
-						if recent_high > 0 and current_price >= recent_high * 0.99:
-							print(f"{stk_cd}: 최근 고점({recent_high:.0f}) 0.5% 이내 - 매수 스킵")
+							print(f"{stk_cd} 탈락: 돌파 미발생 (현재가 {current_price:.0f} ≤ 고점 {breakout_high:.0f})")
 							continue
 
 						# 쿨다운: 매도 후 20분 이내 재매수 금지
@@ -163,18 +160,14 @@ class EntryMixin:
 								continue
 
 						elif phase == 'mid':
-							# 거래량 > 직전봉 × 1.3
-							if prev_vol == 0 or curr_vol <= prev_vol * 1.3:
-								print(f"{stk_cd}: 거래량 미달 (현재 {curr_vol:.0f} <= 직전봉×1.3 {prev_vol*1.3:.0f}) - 매수 스킵")
-								continue
-							# RSI 45 <= x <= 65 AND RSI >= prev_RSI (상승 중)
+							# RSI 45 <= x <= 70 AND RSI >= prev_RSI (상승 중)
 							if rsi is None or rsi < 45:
 								print(f"{stk_cd}: RSI {rsi_str} < 45 - 매수 스킵")
 								continue
-							if rsi > 65:
-								print(f"{stk_cd}: RSI {rsi_str} > 65 (과열) - 매수 스킵")
+							if rsi > 70:
+								print(f"{stk_cd}: RSI {rsi_str} > 70 (과열) - 매수 스킵")
 								continue
-							if prev_rsi is not None and rsi < prev_rsi:
+							if prev_rsi is not None and rsi < prev_rsi * 0.98:
 								print(f"{stk_cd}: RSI 하락 중 ({prev_rsi:.1f}→{rsi_str}) - 매수 스킵")
 								continue
 
@@ -223,7 +216,7 @@ class EntryMixin:
 											continue
 
 						# ── 진입 스냅샷 빌드 ────────────────────────────
-						confirm_secs = 2.5 if phase == 'early' else (4.0 if phase == 'mid' else 3.0)
+						confirm_secs = 2.5 if phase == 'early' else 3.0
 						meta = self.selected_stocks_meta.get(stk_cd, {})
 						kospi_flu, kosdaq_flu = await asyncio.get_event_loop().run_in_executor(
 							None, fn_get_market_index, self.token
@@ -251,7 +244,7 @@ class EntryMixin:
 							f"   현재가: {current_price:.0f} | 직전{breakout_bars}봉 고점: {breakout_high:.0f} ({gap_to_high:+.1f}%)\n"
 							f"   RSI: {rsi_str} | 거래량: {curr_vol:.0f} (직전봉: {prev_vol:.0f}) | 확인: {confirm_secs}초"
 						)
-						bought = await self._buy_stock(stk_cd, current_price, signal_info=signal_info, snapshot=entry_snapshot)
+						bought = await self._buy_stock(stk_cd, current_price, signal_info=signal_info, snapshot=entry_snapshot, acnt_cache=(my_stocks, aset_evlt_amt_cache))
 						if bought and phase == 'early':
 							self.early_buy_count += 1
 
@@ -291,7 +284,7 @@ class EntryMixin:
 		log.info(f'[돌파확인] {stk_cd} {confirm_seconds}초 유지 완료 → 진입')
 		return True
 
-	async def _try_orb_entry(self, stk_cd, current_price, prices, volumes, rsi, rsi_str):
+	async def _try_orb_entry(self, stk_cd, current_price, _prices, volumes, rsi, rsi_str, acnt_cache=None):
 		"""ORB(Opening Range Breakout) 진입 시도. 성공 시 True 반환"""
 		log = get_logger()
 
@@ -394,12 +387,12 @@ class EntryMixin:
 			f"   현재가: {current_price:.0f} > ORB 고점: {orb_high:.0f} (+{orb_overshoot:.2f}%)\n"
 			f"   갭: {orb_gap:.1f}% | RSI: {rsi_str} | 거래량비율: {vol_ratio:.1f}x | 손절: {orb_stop_pct:+.2f}%"
 		)
-		bought = await self._buy_stock(stk_cd, current_price, signal_info=signal_info, snapshot=snapshot)
+		bought = await self._buy_stock(stk_cd, current_price, signal_info=signal_info, snapshot=snapshot, acnt_cache=acnt_cache)
 		if bought:
 			self.orb_buy_count += 1
 		return bought
 
-	async def _buy_stock(self, stk_cd, current_price, signal_info='', snapshot=None):
+	async def _buy_stock(self, stk_cd, current_price, signal_info='', snapshot=None, acnt_cache=None):
 		"""종목 매수. 성공 시 True, 실패 시 False 반환"""
 		log = get_logger()
 		try:
@@ -411,9 +404,12 @@ class EntryMixin:
 				tel_send(f"❌ 매수 취소: {stk_cd} (예수금 조회 실패)")
 				return False
 
-			my_stk, aset_evlt_amt, _ = await asyncio.get_event_loop().run_in_executor(
-				None, fn_kt00004, False, 'N', '', self.token
-			)
+			if acnt_cache is not None:
+				my_stk, aset_evlt_amt = acnt_cache
+			else:
+				my_stk, aset_evlt_amt, _ = await asyncio.get_event_loop().run_in_executor(
+					None, fn_kt00004, False, 'N', '', self.token
+				)
 			if my_stk is None:
 				# kt00004 실패 시 추정예탁자산(kt00002)으로 대체
 				prsm, _ = await asyncio.get_event_loop().run_in_executor(
@@ -423,7 +419,6 @@ class EntryMixin:
 					total_assets = float(str(prsm).replace(',', ''))
 					log.warning(f'[매수] {stk_cd} kt00004 실패 — 추정예탁자산 {total_assets:,.0f}원 사용')
 				elif self.last_known_assets:
-					# 모의투자 kt00002 미지원 or 429 — 마지막 성공 총자산으로 진행
 					total_assets = self.last_known_assets
 					log.warning(f'[매수] {stk_cd} 계좌 조회 실패 — 캐시 총자산 {total_assets:,.0f}원 사용')
 				else:
@@ -434,7 +429,7 @@ class EntryMixin:
 				stk_evlt_sum = sum(float(s.get('evlt_amt', '0') or '0') for s in my_stk) if my_stk else 0
 				cash_val = float(aset_evlt_amt) if aset_evlt_amt and aset_evlt_amt != '0' else float(entry)
 				total_assets = cash_val + stk_evlt_sum
-				self.last_known_assets = total_assets  # 성공 시 캐시 갱신
+				self.last_known_assets = total_assets
 
 			buy_ratio  = get_setting('buy_ratio', 8.0)
 			buy_amount = total_assets * (buy_ratio / 100.0)

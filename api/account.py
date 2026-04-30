@@ -1,6 +1,7 @@
 import requests
 import json
 import datetime
+import time
 import pandas as pd
 from util.config import host_url
 from util.logger import get_logger
@@ -23,31 +24,40 @@ def fn_kt00004(print_df=False, cont_yn='N', next_key='', token=None):
 		'dmst_stex_tp': 'KRX',
 	}
 
-	try:
-		response = requests.post(url, headers=headers, json=params, timeout=10)
-		response.raise_for_status()
-		data = response.json()
-	except Exception as e:
-		log.error(f'[kt00004] 요청 실패: {e}')
-		return None, '0', '0'
+	for attempt in range(3):
+		try:
+			response = requests.post(url, headers=headers, json=params, timeout=10)
+			if response.status_code == 429:
+				wait = 3 * (2 ** attempt)  # 3, 6, 12초
+				log.warning(f'[kt00004] 429 Rate Limit — {wait}초 대기 ({attempt + 1}/3)')
+				time.sleep(wait)
+				continue
+			response.raise_for_status()
+			data = response.json()
+		except Exception as e:
+			log.error(f'[kt00004] 요청 실패: {e}')
+			return None, '0', '0'
 
-	return_code = data.get('return_code', 0)
-	if return_code != 0:
-		log.error(f'[kt00004] API 오류: code={return_code} msg={data.get("return_msg", "")}')
-		return None, '0', '0'
+		return_code = data.get('return_code', 0)
+		if return_code != 0:
+			log.error(f'[kt00004] API 오류: code={return_code} msg={data.get("return_msg", "")}')
+			return None, '0', '0'
 
-	aset_evlt_amt = data.get('aset_evlt_amt', '0') or '0'
-	entr = data.get('entr', '0') or '0'
-	stk_acnt_evlt_prst = data.get('stk_acnt_evlt_prst', [])
-	if not stk_acnt_evlt_prst:
-		return [], aset_evlt_amt, entr
+		aset_evlt_amt = data.get('aset_evlt_amt', '0') or '0'
+		entr = data.get('entr', '0') or '0'
+		stk_acnt_evlt_prst = data.get('stk_acnt_evlt_prst', [])
+		if not stk_acnt_evlt_prst:
+			return [], aset_evlt_amt, entr
 
-	if print_df:
-		df = pd.DataFrame(stk_acnt_evlt_prst)[['stk_cd', 'stk_nm', 'pl_rt', 'rmnd_qty']]
-		pd.set_option('display.unicode.east_asian_width', True)
-		print(df.to_string(index=False))
+		if print_df:
+			df = pd.DataFrame(stk_acnt_evlt_prst)[['stk_cd', 'stk_nm', 'pl_rt', 'rmnd_qty']]
+			pd.set_option('display.unicode.east_asian_width', True)
+			print(df.to_string(index=False))
 
-	return stk_acnt_evlt_prst, aset_evlt_amt, entr
+		return stk_acnt_evlt_prst, aset_evlt_amt, entr
+
+	log.error('[kt00004] 429 재시도 3회 초과 — None 반환')
+	return None, '0', '0'
 
 
 # 당일 추정예탁자산 조회 (kt00002)

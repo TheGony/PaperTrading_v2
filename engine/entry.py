@@ -202,10 +202,10 @@ class EntryMixin:
 							print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: 당일 손실 {self.daily_loss_count[stk_cd]}회 - 금일 거래 금지")
 							continue
 
-						# ── 과열 종목 진입 금지 (등락률 > 20%) ────────
+						# ── 과열 종목 진입 금지 (등락률 > 23%) ────────
 						flu_rt = self.selected_stocks_meta.get(stk_cd, {}).get('flu_rt', 0)
-						if flu_rt > 20:
-							print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: 과열(flu_rt={flu_rt:.1f}% > 20%) - 매수 스킵")
+						if flu_rt > 23:
+							print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: 과열(flu_rt={flu_rt:.1f}% > 23%) - 매수 스킵")
 							continue
 
 						# ── 고점 근접 필터 (장초반 생략, 중반/후반만 적용) ──────

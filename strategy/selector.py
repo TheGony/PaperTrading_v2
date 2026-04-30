@@ -69,7 +69,7 @@ class StockSelectorMixin:
 
 			# ── 2. ETF/ETN 제거 + 과열 제외 ─────────────────────
 			raw = [s for s in raw if not self._is_excluded(s.get('stk_nm', ''))]
-			raw = [s for s in raw if s.get('flu_rt', 0) <= 25]
+			raw = [s for s in raw if s.get('flu_rt', 0) <= 23]
 
 			# ── 3. 1차 필터: 거래대금 ≥ 700억, 등락률 ≥ -1.5% ──
 			filtered = [
@@ -121,7 +121,7 @@ class StockSelectorMixin:
 
 			# ── 2. ETF/ETN 제거 + 과열 제외 ─────────────────────
 			raw = [s for s in raw if not self._is_excluded(s.get('stk_nm', ''))]
-			raw = [s for s in raw if s.get('flu_rt', 0) <= 25]
+			raw = [s for s in raw if s.get('flu_rt', 0) <= 23]
 
 			# ── 3. 1차 필터 (완화): 등락률 ≥ +0.3%, 거래량급증률 ≥ 120% ──
 			filtered = [

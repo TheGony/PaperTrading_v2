@@ -41,7 +41,7 @@ class TraderMixin:
 					await self._get_orb_candidates(is_refresh=True)
 					orb_refreshed = True
 
-				# ── MOMENTUM 즉시 보충 (daily_loss_count 2회 제거 후) ──
+				# ── MOMENTUM 즉시 보충 (선정종목 매수후, daily_loss_count 2회 제거 후) ──
 				if self.needs_stock_refresh:
 					self.needs_stock_refresh = False
 					if MarketHour.is_entry_allowed():

@@ -130,7 +130,7 @@ class ExitMixin:
 							snap = self.entry_snapshot.get(stk_cd, {})
 
 							# ORB 전용 트레일링 (4단계)
-							if snap.get('strategy') == '장초반ORB':
+							if snap.get('strategy') == 'ORB':
 								if peak < 2.0:
 									dynamic_trail = 1.2
 								elif peak < 4.0:
@@ -153,7 +153,7 @@ class ExitMixin:
 							should_sell = False
 							sell_reason = ''
 
-							# 조기 손절: 진입 후 2분 이내 -0.8% 이하
+							# 조기 손절: 진입 후 2분 이내 -1.2% 이하
 							entry_dt = self.entry_time.get(stk_cd)
 							if entry_dt:
 								elapsed_min = (datetime.datetime.now() - entry_dt).total_seconds() / 60
@@ -168,7 +168,7 @@ class ExitMixin:
 								sell_reason = f'ORB 손절 ({pl_rt:+.2f}% ≤ {orb_stop_pct:+.2f}%)'
 
 							# ORB 수익 반납 방지: peak ≥ 1.5% 도달 후 수익률이 0% 아래로 내려오면 즉시 매도
-							if not should_sell and snap.get('strategy') == '장초반ORB' and peak >= 1.5 and pl_rt < 0:
+							if not should_sell and snap.get('strategy') == 'ORB' and peak >= 1.5 and pl_rt < 0:
 								should_sell = True
 								sell_reason = f'ORB 수익 반납 방지 (고점: {peak:+.2f}% → 현재: {pl_rt:+.2f}%)'
 

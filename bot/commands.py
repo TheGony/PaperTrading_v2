@@ -17,7 +17,7 @@ class BotCommandsMixin:
 					return False
 
 			phase = MarketHour.get_market_phase()
-			msg   = f"👀 [선정 종목] ({self._phase_name(phase)})\n\n"
+			msg   = f"👀 [선정 종목] \n\n"
 
 			if not self.selected_stocks:
 				msg += "   아직 종목이 선정되지 않았습니다.\n"

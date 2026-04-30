@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import datetime
 from util.market_hour import MarketHour
 from util.get_setting import update_setting
@@ -39,7 +39,8 @@ class TraderMixin:
 			)
 
 			while self.is_running and MarketHour.is_market_open_time():
-				now   = datetime.datetime.now()
+				loop_start = datetime.datetime.now()
+				now   = loop_start
 				phase = MarketHour.get_market_phase()
 
 				# ── ORB 2차 갱신 (09:03) ────────────────────────
@@ -71,7 +72,8 @@ class TraderMixin:
 
 				await self._check_charts_and_trade()
 				self.last_chart_check_time = now
-				await asyncio.sleep(60)
+				elapsed = (datetime.datetime.now() - loop_start).total_seconds()
+				await asyncio.sleep(max(0, 60 - elapsed))
 
 		except asyncio.CancelledError:
 			print("트레이딩 루프가 중지되었습니다")

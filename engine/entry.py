@@ -216,6 +216,12 @@ class EntryMixin:
 						)
 						await self._buy_stock(stk_cd, current_price, signal_info=signal_info, snapshot=entry_snapshot, acnt_cache=(my_stocks, aset_evlt_amt_cache))
 
+						# 매수 성공 후 선전종목에서 제거
+						if stk_cd in self.selected_stocks:
+							self.selected_stocks.remove(stk_cd)
+							self.needs_stock_refresh = True
+							get_logger().info(f'[매수제외] {stk_cd} 매수 완료 → 선정 목록 제거, 보충 갱신 예약')
+
 				# 성공적으로 완료되면 루프 종료
 				return
 

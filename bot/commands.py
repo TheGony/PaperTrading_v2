@@ -15,9 +15,14 @@ class BotCommandsMixin:
 					tel_send("❌ 토큰 발급에 실패했습니다")
 					return False
 
-			# ── ORB 준비 상태 ─────────────────────────────────
+			# ── ORB 준비 상태 + Market Regime ─────────────────
 			orb_status = "완료 ✅" if self.orb_ready else "대기 중 ⏳"
-			msg = f"👀 [선정 종목] (ORB: {orb_status})\n\n"
+			vol        = getattr(self, 'market_volatility', 0.0)
+			regime     = getattr(self, 'market_regime', 'normal')
+			msg = (
+				f"👀 [선정 종목] (ORB: {orb_status})\n"
+				f"📊 [Market Regime] {regime} | 변동성: {vol:.3f}%\n\n"
+			)
 
 			# ── MOMENTUM 종목 ──────────────────────────────────
 			if not self.selected_stocks:
@@ -308,7 +313,6 @@ class BotCommandsMixin:
 
 ■ ORB 후보 (09:01 1차 → 09:03 2차 확정, 이후 고정, 최대 15종목)
   API: 거래대금상위(ka10032) + 당일거래량상위(ka10030) 병합
-       보조: 전일대비등락률(ka10027) + 예상체결등락률(ka10029)
   하드 필터:
     · 갭상승(gap > 0%) 종목만
     · 시가 대비 -2% 이상 눌린 종목 제외
@@ -317,8 +321,7 @@ class BotCommandsMixin:
     · 갭 1.5~8% 범위 이탈
     · 당일 윗꼬리 > 5%
     · 09:00~09:10 음봉 2개 이상
-  스코어 = 당일거래량 30% + 예상체결등락률 25%
-           + 거래대금 25% + 등락률 10% - 패널티
+  스코어 = 당일거래량 40% + 거래대금 30% + 등락률 30% - 패널티
   보충: 5종목 미만 시 캔들 미통과 종목을 거래대금 순으로 보충
 
 ■ MOMENTUM 후보 (09:03 이후 초기 선정, 5분 주기 점수 비교 갱신, 상위 {top_n}종목)
@@ -329,7 +332,8 @@ class BotCommandsMixin:
     · 과열 종목(등락률 > 23%) 제외
     · ETF·ETN·스팩·레버리지 제외
   차트 필터: RSI(14) 계산용 1분봉 조회 (캐시 활용)
-  스코어 = 거래대금 35% + 등락률 30% + RSI(14) 20% + 외인수급 15%
+  스코어 = 거래대금 30% + 등락률 25% + RSI(14) 20%
+           + 외인수급 15% + 거래량급증비율(sdnin_rt) 10%
   갱신: 기존 종목과 신규 후보 점수 비교 후 선택적 교체
         (갱신 시 기존 상위 종목은 1사이클 버팀)"""
 
@@ -377,16 +381,14 @@ class BotCommandsMixin:
 
 ■ ORB 청산 (profit_check_loop, 1초 주기)
   우선순위 (위일수록 먼저 체크):
-  1. 조기손절   진입 2분 이내 수익률 < -1.2%  → 즉시 매도
-  2. ORB 저점   수익률 ≤ orb_stop_pct         → 즉시 매도
-                (orb_stop_pct = max(ORB저점%, -2.0%))
-  3. 수익반납방지  peak ≥ 1.5% 도달 후 pl < 0%  → 2회 확인
-  4. 트레일링    pl ≤ peak - gap               → 2회 확인
-       peak < 2%  →  gap 1.0%
-       2~4%       →  gap 1.3%
-       4~7%       →  gap 1.6%
-       7%+        →  gap 2.0%
-  5. 고정손절   수익률 ≤ -2.0%                → 즉시 매도
+  1. 조기손절    진입 2분 이내 수익률 < -1.2%       → 즉시 매도
+  2. ORB 저점    수익률 ≤ orb_stop_pct              → 즉시 매도
+                 (orb_stop_pct = max(ORB저점%, -2.0%))
+  3. 수익반납방지 peak ≥ 1.5% 도달 후 pl < 0%       → 2회 확인
+  4. 트레일링    pl ≤ peak - orb_trailing(peak)     → 2회 확인
+                 orb_trailing = clamp(1.0 + peak×0.12,  1.0, 1.8)
+                 예) peak 2%→1.24%  5%→1.60%  7%+→1.80%
+  5. 고정손절    수익률 ≤ -2.0%                     → 즉시 매도
 
 ■ MOMENTUM 청산 (두 루프 병행)
   [차트체크 5초 루프]
@@ -394,14 +396,20 @@ class BotCommandsMixin:
 
   [profit_check 1초 루프]
   우선순위:
-  1. 조기손절   진입 2분 이내 수익률 < -1.2%  → 즉시 매도
-  2. 트레일링   pl ≤ peak - gap               → 2회 확인
-       peak < 2%   →  gap 2.0%
-       2~4%        →  gap 2.3%
-       4~7%        →  gap 2.7%
-       7~10%       →  gap 3.0%
-       10%+        →  gap 3.2%
-  3. 고정손절   수익률 ≤ -3.0%               → 즉시 매도
+  1. 조기손절    진입 2분 이내 수익률 < -1.2%                   → 즉시 매도
+  2. 트레일링    pl ≤ peak - momentum_trailing(peak, vol)      → 2회 확인
+                 momentum_trailing = clamp(2.0 + log(1+peak)×0.6 + vol×0.5,  2.0, 3.2)
+                 vol = 시장변동성 (KOSPI×0.4 + KOSDAQ×0.6 장중진폭%)
+                 예) peak 2%,vol=0→2.54%  peak 5%,vol=1.0→3.20%
+  3. 고정손절    수익률 ≤ -3.0%                                → 즉시 매도
+
+■ Market Regime (5분 주기 갱신, _regime_loop)
+  KOSPI+KOSDAQ 당일 OHLC(ka20001) 기반
+  · 변동성 = (고가-저가)/현재가 × 100 의 가중평균
+  · 추세   = |등락률| 의 가중평균
+  · volatile_market(vol>2.5) / trend_strong(trend>0.8)
+    sideways(trend<0.3) / normal
+  → Regime은 MOMENTUM trailing의 vol 파라미터에만 반영
 
 ■ 자동매매 검증방식
   · 돌파 확인: 진입 전 3초 동안 0.5초 간격 현재가 재조회
@@ -461,7 +469,12 @@ class BotCommandsMixin:
 			tel_send("❌ 사용법: chart {x} {y}  예) chart 5 20")
 			return False
 		elif command.startswith('slr') or command.startswith('tsg'):
-			tel_send("⚠️ slr/tsg 는 더 이상 지원하지 않습니다.\n손절·트레일링은 전략별 고정값으로 운용됩니다.\n   ORB: 손절 -2% / 트레일링 1.0~2.0%\n   MOMENTUM: 손절 -3% / 트레일링 2.0~3.2%")
+			tel_send(
+				"⚠️ slr/tsg 는 더 이상 지원하지 않습니다.\n"
+				"손절·트레일링은 전략별 연속 함수(continuous function)로 고정 운용됩니다.\n"
+				"   ORB:      손절 -2.0% / trailing = clamp(1.0 + peak×0.12, 1.0, 1.8)\n"
+				"   MOMENTUM: 손절 -3.0% / trailing = clamp(2.0 + log(1+peak)×0.6 + vol×0.5, 2.0, 3.2)"
+			)
 			return False
 		else:
 			tel_send(f"❓ 알 수 없는 명령어입니다: {text}\n'help' 를 입력하면 명령어 목록을 확인할 수 있습니다.")

@@ -34,6 +34,7 @@
   매 5초       _check_charts_and_trade 실행 (메인 루프)
   매 1초       _profit_check_loop 실행 (손익 기반 청산)
   매 5분       MOMENTUM 종목 갱신 (선택적 교체)
+               Market Regime 갱신 (_regime_loop, 장 중 상시)
   15:20        신규 진입 및 종목 갱신 차단
   15:30        트레이딩 루프 종료
   장 마감      일별 보고서 전송 + CSV 저장 + 상태 전체 초기화
@@ -47,11 +48,9 @@
 3-A. ORB 후보 선정 (orb_selector.py)
 ────────────────────────────────────────
 
-  사용 API (4개 병렬 조회):
+  사용 API (2개 병렬 조회):
     ka10032  거래대금 상위 30종목       → 유동성 풀 (주)
-    ka10030  당일 거래량 상위 30종목    → 유동성 풀 (주) + 거래량 보조 맵
-    ka10027  전일대비 등락률 상위 30    → 보조 데이터만
-    ka10029  예상체결 등락률 상위 30    → 스코어 입력값
+    ka10030  당일 거래량 상위 30종목    → 유동성 풀 (주) + 거래량/거래대금 보조 맵
 
   풀 구성:
     ka10032 + ka10030 병합 (중복 시 첫 등장 우선), ETF/ETN/스팩 등 제외
@@ -68,10 +67,9 @@
     · 09:00~09:10 음봉 2개 이상
 
   스코어 공식:
-    score = log(trde_prica) / log(max_trde)  × 0.25   거래대금 (log 정규화)
-          + log(trde_qty)   / log(max_vol)   × 0.30   당일 거래량 (log 정규화)
-          + exp_flu_rt / max_exp             × 0.25   예상체결 등락률
-          + flu_rt    / max_flu              × 0.10   등락률
+    score = log(trde_qty)   / log(max_vol)   × 0.40   당일 거래량 (log 정규화)
+          + log(trde_prica) / log(max_trde)  × 0.30   거래대금 (log 정규화)
+          + flu_rt          / max_flu        × 0.30   등락률
           - penalty
 
   결과:
@@ -80,12 +78,12 @@
 
 
 ────────────────────────────────────────
-3-B. MOMENTUM 후보 선정 (selector.py)
+3-B. MOMENTUM 후보 선정 (mom_selector.py)
 ────────────────────────────────────────
 
   사용 API (병렬 조회):
     ka10030  당일 거래량 상위 30종목    (주)
-    ka10023  거래량 급증 종목 30종목    (보조, 병합)
+    ka10023  거래량 급증 종목 30종목    (보조, 병합 — sdnin_rt 포함)
     ka90009  외인 순매수 종목 집합      (수급 판단)
 
   1차 필터:
@@ -99,10 +97,13 @@
     · RSI(14) 계산용 봉수 부족 시 해당 종목 제외
 
   스코어 공식:
-    score = log(trde_amt) / log(max_amt)       × 0.35   거래대금 (log 정규화)
-          + (flu_rt - min_flu) / flu_range      × 0.30   등락률 (min-max 정규화)
+    score = log(trde_amt) / log(max_amt)       × 0.30   거래대금 (log 정규화)
+          + (flu_rt - min_flu) / flu_range      × 0.25   등락률 (min-max 정규화)
           + rsi_val / 100                       × 0.20   RSI(14)
           + 1.0 (외인수급 있음) or 0.0          × 0.15   외인 순매수 여부
+          + sdnin_rt / max_sdnin               × 0.10   거래량 급증 비율 (ka10023)
+
+    ※ ka10030 출신 종목은 sdnin_rt = 0 (ka10023 없는 종목)
 
   결과:
     · 상위 stock_count 종목 선정 (설정값, 기본 10)
@@ -250,11 +251,9 @@
   2     pl_rt ≤ orb_stop_pct                          hard stop   즉시 매도
         (orb_stop_pct = max(ORB저점기준%, -2.0%))
   3     peak ≥ 1.5% 도달 후 pl_rt < 0%                soft stop   2회 연속 확인 후 매도
-  4     pl_rt ≤ peak - _orb_trailing(peak)            soft stop   2회 연속 확인 후 매도
-        peak < 2%  → gap 1.0%
-        2~4%       → gap 1.3%
-        4~7%       → gap 1.6%
-        7%+        → gap 2.0%
+  4     pl_rt ≤ peak - orb_trailing(peak)             soft stop   2회 연속 확인 후 매도
+        orb_trailing(peak) = clamp(1.0 + peak × 0.12,  1.0, 1.8)
+        예) peak=2% → gap=1.24%  peak=5% → gap=1.60%  peak=7% → gap=1.80%(상한)
   5     pl_rt ≤ -2.0%                                  hard stop   즉시 매도 (최후 안전망)
 
   ──────────────────────────────────────
@@ -262,12 +261,11 @@
   ──────────────────────────────────────
   순위  조건                                           유형        발동
   1     진입 후 2분 이내 AND pl_rt < -1.2%             hard stop   즉시 매도
-  2     pl_rt ≤ peak - _momentum_trailing(peak)        soft stop   2회 연속 확인 후 매도
-        peak < 2%   → gap 2.0%
-        2~4%        → gap 2.3%
-        4~7%        → gap 2.7%
-        7~10%       → gap 3.0%
-        10%+        → gap 3.2%
+  2     pl_rt ≤ peak - momentum_trailing(peak, vol)   soft stop   2회 연속 확인 후 매도
+        momentum_trailing = clamp(2.0 + log(1+peak)×0.6 + vol×0.5,  2.0, 3.2)
+        vol = market_volatility (KOSPI×0.4 + KOSDAQ×0.6 장중진폭%)
+        예) peak=2%, vol=0.0 → gap=2.54%
+            peak=5%, vol=1.0 → gap=3.20%(상한)
   3     pl_rt ≤ -3.0%                                  hard stop   즉시 매도 (최후 안전망)
 
   ──────────────────────────────────────
@@ -287,7 +285,49 @@
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-6. 안전 장치 / 검증 구조
+6. Market Regime (시장 체제 판단)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  목적:
+    종목 단위 trailing 파라미터에 시장 변동성을 반영한다.
+    Regime은 매수/매도 조건 판단에 직접 개입하지 않는다.
+
+  갱신 주기:
+    매 5분 (_regime_loop 백그라운드 태스크)
+
+  데이터 소스:
+    ka20001 (업종현재가요청) — 당일 OHLC + 등락률
+      KOSPI  (mrkt_tp='0', inds_cd='001')
+      KOSDAQ (mrkt_tp='1', inds_cd='101')
+
+  계산:
+    kospi_vol   = (KOSPI  high - low) / cur_prc × 100   장중 진폭(%)
+    kosdaq_vol  = (KOSDAQ high - low) / cur_prc × 100
+
+    kospi_tr    = |KOSPI  flu_rt|    전일 대비 변동 절댓값(%)
+    kosdaq_tr   = |KOSDAQ flu_rt|
+
+    market_volatility = kospi_vol × 0.4 + kosdaq_vol × 0.6
+    market_trend      = kospi_tr  × 0.4 + kosdaq_tr  × 0.6
+
+  Regime 분류:
+    volatile_market  : market_volatility > 2.5   (장중 진폭 과대)
+    trend_strong     : market_trend      > 0.8   (지수 뚜렷하게 움직임)
+    sideways         : market_trend      < 0.3   (지수 거의 보합)
+    normal           : 나머지
+
+  Regime 사용:
+    · MOMENTUM trailing: momentum_trailing(peak, market_volatility)
+      → vol 값이 클수록 trailing gap 확대 (눌림 허용폭 증가)
+    · ORB trailing: 시장 volatility 미사용 (고정 연속 함수)
+
+  상태 변수:
+    self.market_volatility  float   현재 시장 변동성
+    self.market_regime      str     'normal' / 'sideways' / 'trend_strong' / 'volatile_market'
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. 안전 장치 / 검증 구조
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   차트 캐시 (_get_chart):
@@ -320,7 +360,7 @@
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-7. 주요 설정값 (settings.json)
+9. 주요 설정값 (settings.json)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   stock_count      MOMENTUM 선정 종목 수               (기본: 10)
@@ -332,11 +372,11 @@
 
   ※ 더 이상 사용하지 않는 설정:
      stop_loss_rate     → 전략별 고정값으로 대체 (ORB: -2.0%, MOMENTUM: -3.0%)
-     trailing_stop_gap  → 전략별 고정 단계로 대체 (exit.py 하드코딩)
+     trailing_stop_gap  → continuous function으로 대체 (engine/regime.py)
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-8. 공통 제외 조건
+10. 공통 제외 조건
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   키워드 제외 (_is_excluded):
@@ -350,7 +390,7 @@
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-9. 로그 / 기록 구조
+11. 로그 / 기록 구조
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   trading_logs/trade_detail.csv   매매 건별 누적 (35개 컬럼)

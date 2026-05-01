@@ -111,27 +111,31 @@ class StockSelectorMixin:
 				failed_stk.append(s)
 
 		# ── 6. 로그 정규화 후 스코어 계산 ──────────────────────
-		# score = volume*0.35 + flu*0.30 + rsi*0.20 + foreign*0.15
+		# score = volume*0.30 + flu*0.25 + rsi*0.20 + foreign*0.15 + sdnin*0.10
 		scored = []
 		if candidates:
-			amt_list  = [c.get('trde_amt', 0) for c in candidates]
-			flu_list  = [c.get('flu_rt', 0)   for c in candidates]
-			max_amt   = max(amt_list) or 1
-			max_flu   = max(flu_list)
-			min_flu   = min(flu_list)
-			flu_range = (max_flu - min_flu) or 1
+			amt_list   = [c.get('trde_amt', 0)  for c in candidates]
+			flu_list   = [c.get('flu_rt', 0)    for c in candidates]
+			sdnin_list = [c.get('sdnin_rt', 0)  for c in candidates]
+			max_amt    = max(amt_list) or 1
+			max_flu    = max(flu_list)
+			min_flu    = min(flu_list)
+			flu_range  = (max_flu - min_flu) or 1
+			max_sdnin  = max(sdnin_list) or 1
 
 			for c in candidates:
 				volume_norm   = math.log(max(c.get('trde_amt', 1), 1)) / math.log(max(max_amt, 2))
 				flu_norm      = (c.get('flu_rt', 0) - min_flu) / flu_range
 				rsi_norm      = c['rsi_val'] / 100
 				foreign_score = 1.0 if c['is_foreign'] else 0.0
+				sdnin_norm    = c.get('sdnin_rt', 0) / max_sdnin
 
 				score = (
-					volume_norm   * 0.35 +
-					flu_norm      * 0.30 +
+					volume_norm   * 0.30 +
+					flu_norm      * 0.25 +
 					rsi_norm      * 0.20 +
-					foreign_score * 0.15
+					foreign_score * 0.15 +
+					sdnin_norm    * 0.10
 				)
 				scored.append({
 					**{k: v for k, v in c.items() if k not in ('rsi_val',)},

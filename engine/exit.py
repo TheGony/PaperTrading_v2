@@ -2,35 +2,10 @@ import asyncio
 import datetime
 from api.account import fn_kt00004
 from api.order import fn_kt10001
+from engine.regime import orb_trailing, momentum_trailing
 from util.market_hour import MarketHour
 from util.tel_send import tel_send
 from util.logger import get_logger
-
-
-# FIXED: ORB / MOMENTUM trailing 함수 완전 분리 (공유 금지)
-
-def _orb_trailing(peak: float) -> float:
-	"""ORB 전략 트레일링 갭 — 빠른 청산, 수익 반납 최소화"""
-	if peak >= 7.0:
-		return 2.0
-	elif peak >= 4.0:
-		return 1.6
-	elif peak >= 2.0:
-		return 1.3
-	return 1.0
-
-
-def _momentum_trailing(peak: float) -> float:
-	"""MOMENTUM 전략 트레일링 갭 — 추세 유지, 눌림 허용"""
-	if peak >= 10.0:
-		return 3.2
-	elif peak >= 7.0:
-		return 3.0
-	elif peak >= 4.0:
-		return 2.7
-	elif peak >= 2.0:
-		return 2.3
-	return 2.0
 
 
 class ExitMixin:
@@ -118,13 +93,12 @@ class ExitMixin:
 							snap     = self.entry_snapshot.get(stk_cd, {})
 							strategy = snap.get('strategy', 'MOMENTUM')
 
-							# FIXED: 전략별 고정 파라미터 (settings 의존 완전 제거)
 							if strategy == 'ORB':
 								stop_loss = -2.0
-								trail_gap = _orb_trailing(peak)   # FIXED: ORB 전용
+								trail_gap = orb_trailing(peak)
 							else:
 								stop_loss = -3.0
-								trail_gap = _momentum_trailing(peak)  # FIXED: MOMENTUM 전용
+								trail_gap = momentum_trailing(peak, self.market_volatility)
 
 							trail_trigger = peak - trail_gap
 

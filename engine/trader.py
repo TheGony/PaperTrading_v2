@@ -114,6 +114,7 @@ class TraderMixin:
 			# 백그라운드 태스크 시작
 			self.trading_task      = asyncio.create_task(self._trading_loop())
 			self.profit_check_task = asyncio.create_task(self._profit_check_loop())
+			self.regime_task       = asyncio.create_task(self._regime_loop())
 
 			tel_send("✅ 트레이딩 프로세스가 시작되었습니다")
 			return True
@@ -149,6 +150,13 @@ class TraderMixin:
 				except asyncio.CancelledError:
 					pass
 
+			if self.regime_task and not self.regime_task.done():
+				self.regime_task.cancel()
+				try:
+					await self.regime_task
+				except asyncio.CancelledError:
+					pass
+
 			self.orb_ready              = False
 			self.selected_stocks        = []
 			self.selected_stocks_names  = {}
@@ -157,6 +165,8 @@ class TraderMixin:
 			self.orb_buy_count          = 0
 			self.orb_candidates         = []
 			self._sell_signal_count     = {}
+			self.market_volatility      = 0.0
+			self.market_regime          = 'normal'
 
 			tel_send("✅ 트레이딩 프로세스가 중지되었습니다")
 			return True

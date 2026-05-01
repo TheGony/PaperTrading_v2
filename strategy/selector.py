@@ -1,6 +1,5 @@
 import asyncio
 import math
-from api.chart import fn_ka10080
 from api.ranking import fn_ka10030, fn_ka10032, fn_ka10023
 from api.foreign import fn_ka90009
 from api.account import fn_kt00004
@@ -88,23 +87,28 @@ class StockSelectorMixin:
 			None, fn_ka90009, 'N', '', self.token
 		)
 
-		# ── 5. 차트 필터 → 후보 수집 ─────────────────────────
-		candidates = []
-		for s in pool:
-			prices, _, _, _ = await asyncio.get_event_loop().run_in_executor(
-				None, fn_ka10080, s['stk_cd'], needed, 'N', '', self.token
-			)
-			await asyncio.sleep(0.3)
+		# ── 5. 차트 필터 → 후보 수집 (병렬, 공유 캐시) ──────────
+		async def _fetch(s):
+			prices, *_ = await self._get_chart(s['stk_cd'], needed)
 			if not prices or len(prices) < needed:
-				continue
+				return None
 			rsi = self._calc_rsi(prices, rsi_period)
-			candidates.append({
+			return {
 				**s,
 				'trde_amt_rank': amt_rank.get(s['stk_cd'], len(pool)),
 				'rsi_val':       rsi if rsi is not None else 50.0,
 				'is_foreign':    bool(buy_stocks and s['stk_cd'] in buy_stocks),
 				'strategy':      'MOMENTUM',
-			})
+			}
+
+		results    = await asyncio.gather(*[_fetch(s) for s in pool], return_exceptions=True)
+		candidates = []
+		failed_stk = []
+		for s, r in zip(pool, results):
+			if r is not None and not isinstance(r, Exception):
+				candidates.append(r)
+			else:
+				failed_stk.append(s)
 
 		# ── 6. 로그 정규화 후 스코어 계산 ──────────────────────
 		# score = volume*0.35 + flu*0.30 + rsi*0.20 + foreign*0.15
@@ -162,6 +166,24 @@ class StockSelectorMixin:
 				fb.sort(key=lambda x: x['score'], reverse=True)
 				scored += fb[:stock_count - len(scored)]
 
+		# ── 7. candidate_log 기록 ────────────────────────────────
+		if hasattr(self, '_log_candidates'):
+			selected_cds = {s['stk_cd'] for s in scored[:stock_count]}
+			log_entries  = []
+			for s in failed_stk:
+				log_entries.append({'stock': s, 'selected': False, 'reason': '데이터 부족', 'rank': None, 'score': None, 'rsi': None})
+			for i, c in enumerate(scored):
+				is_sel = c['stk_cd'] in selected_cds
+				log_entries.append({
+					'stock':    c,
+					'selected': is_sel,
+					'reason':   '' if is_sel else '점수 낮음',
+					'rank':     i + 1 if is_sel else None,
+					'score':    c.get('score'),
+					'rsi':      c.get('rsi'),
+				})
+			self._log_candidates(log_entries)
+
 		return scored[:stock_count]
 
 	async def _select_initial_stocks(self):
@@ -188,7 +210,9 @@ class StockSelectorMixin:
 				'trde_amt':      s.get('trde_amt', None),
 				'trde_amt_rank': s.get('trde_amt_rank', None),
 				'strategy':      'MOMENTUM',
-			} for s in ranked_stocks
+				'rank':          i + 1,
+				'rsi':           s.get('rsi', None),
+			} for i, s in enumerate(ranked_stocks)
 		}
 
 		tel_send(
@@ -245,7 +269,9 @@ class StockSelectorMixin:
 					'trde_amt':      s.get('trde_amt', None),
 					'trde_amt_rank': s.get('trde_amt_rank', None),
 					'strategy':      'MOMENTUM',
-				} for s in final_stocks
+					'rank':          i + 1,
+					'rsi':           s.get('rsi', None),
+				} for i, s in enumerate(final_stocks)
 			}
 
 			added   = [s for s in new_stocks if s not in self.selected_stocks]

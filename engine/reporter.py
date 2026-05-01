@@ -110,6 +110,7 @@ class ReporterMixin:
 			'돌파강도(%)', '추격비율(%)', '거래대금', '거래대금순위', '진입시간(분)',
 			'선정순위', '최근5봉변동성(%)', '1분수익률(%)', '3분수익률(%)',
 			'시장상태', '선정이유', '고점대비위치(%)',
+			'진입VWAP', 'VWAP갭(%)',
 		]
 		if os.path.exists(detail_path):
 			# 기존 헤더 확인 후 컬럼 추가된 경우 파일 재작성
@@ -157,6 +158,8 @@ class ReporterMixin:
 					t.get('market_state', ''),
 					t.get('selection_reason', ''),
 					f"{t['high_pct']:+.2f}"        if t.get('high_pct')       is not None else '',
+					f"{t['entry_vwap']:.0f}"       if t.get('entry_vwap')     is not None else '',
+					f"{t['vwap_gap_pct']:+.2f}"    if t.get('vwap_gap_pct')   is not None else '',
 				])
 
 		# ── daily_summary.csv (날짜별 1행 누적) ──────────────────────────

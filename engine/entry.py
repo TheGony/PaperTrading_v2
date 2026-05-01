@@ -10,6 +10,58 @@ from util.tel_send import tel_send
 from util.logger import get_logger
 
 
+# ── VWAP / 기관수급 필터 (모듈 레벨 순수 함수) ────────────────────────────────
+
+def _calculate_vwap(prices: list, highs: list, volumes: list):
+    """VWAP = Σ(TP × vol) / Σ(vol),  TP = (high + close) / 2
+    입력 리스트는 최신봉 기준 내림차순(fn_ka10080 기본 순서).
+    low 미제공으로 (H+C)/2 근사 사용.
+    반환: float — 계산 불가 시 None
+    """
+    if not prices or not highs or not volumes:
+        return None
+    cum_tp_vol = 0.0
+    cum_vol    = 0.0
+    for close, high, vol in zip(reversed(prices), reversed(highs), reversed(volumes)):
+        if vol <= 0:
+            continue
+        cum_tp_vol += (high + close) / 2 * vol
+        cum_vol    += vol
+    return cum_tp_vol / cum_vol if cum_vol > 0 else None
+
+
+def _institutional_filter(current_price: float, vwap: float, prices: list, volumes: list):
+    """기관 수급 필터 — 세 조건 모두 통과해야 (True, '') 반환.
+
+    1. current_price > vwap                       (VWAP 상단 진입)
+    2. (current_price - vwap) / vwap ≤ 0.03       (VWAP 대비 3% 초과 과열 제외)
+    3. 최근 5봉 거래대금 > 이전 5봉 거래대금 × 1.2  (실질 매수세 확인)
+       거래대금 = close × volume
+
+    반환: (passed: bool, reason: str)
+    """
+    # 1. VWAP 상단 확인
+    if current_price <= vwap:
+        return False, f'VWAP 하회 (현재가 {current_price:.0f} ≤ VWAP {vwap:.0f})'
+
+    # 2. VWAP 대비 과열 제외
+    vwap_gap = (current_price - vwap) / vwap
+    if vwap_gap > 0.03:
+        return False, f'VWAP 과열 ({vwap_gap * 100:.1f}% > 3%)'
+
+    # 3. 최근 5봉 vs 이전 5봉 거래대금 비교 (데이터 충분한 경우만)
+    if len(prices) >= 10 and len(volumes) >= 10:
+        recent_tv = sum(p * v for p, v in zip(prices[:5],   volumes[:5]))
+        prev_tv   = sum(p * v for p, v in zip(prices[5:10], volumes[5:10]))
+        if prev_tv > 0 and recent_tv <= prev_tv * 1.2:
+            return False, (
+                f'거래대금 증가 부족 '
+                f'(최근5봉 {recent_tv / 1e6:.0f}M ≤ 이전5봉 {prev_tv / 1e6:.0f}M × 1.2)'
+            )
+
+    return True, ''
+
+
 class EntryMixin:
 	_CHART_CACHE_TTL = 55  # 초 (1분봉 갱신 주기보다 짧게, 실전 시 0으로 설정하면 캐시 비활성화)
 
@@ -89,7 +141,7 @@ class EntryMixin:
 
 				for stk_cd in stocks_to_check:
 					# 1분봉 데이터 조회 (needed개, 최신순) - 캐시에서 즉시 반환
-					prices, volumes, _, _, cntr_tm = await self._get_chart(stk_cd, needed)
+					prices, volumes, _, highs, cntr_tm = await self._get_chart(stk_cd, needed)
 
 					# 데이터 유효성 검사
 					if len(prices) < needed or any(p == 0.0 for p in prices):
@@ -151,6 +203,30 @@ class EntryMixin:
 							print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd} 탈락: 돌파 미발생 (현재가 {current_price:.0f} ≤ 고점 {breakout_high:.0f})")
 							continue
 
+						# ── 거래량 필터: 현재 거래량 > 최근 5봉 평균 × 1.3 ─────────
+						curr_vol  = volumes[0] if volumes else 0
+						avg_vol_5 = sum(volumes[1:6]) / len(volumes[1:6]) if len(volumes) > 1 else 0
+						if avg_vol_5 > 0 and curr_vol <= avg_vol_5 * 1.2:
+							print(
+								f"[{datetime.datetime.now().strftime('%H:%M:%S')}] "
+								f"{stk_cd}: 거래량 부족 "
+								f"(현재 {curr_vol:.0f} ≤ 5봉평균 {avg_vol_5:.0f} × 1.3)"
+							)
+							continue
+
+						# ── VWAP + 기관 수급 필터 ────────────────────────────────
+						vwap = _calculate_vwap(prices, highs, volumes)
+						if vwap is not None:
+							passed, reason = _institutional_filter(
+								current_price, vwap, prices, volumes
+							)
+							if not passed:
+								print(
+									f"[{datetime.datetime.now().strftime('%H:%M:%S')}] "
+									f"{stk_cd}: 기관수급 필터 탈락 — {reason}"
+								)
+								continue
+
 						# 쿨다운: 매도 후 20분 이내 재매수 금지
 						last_sell = self.sell_cooldown.get(stk_cd)
 						if last_sell:
@@ -159,8 +235,6 @@ class EntryMixin:
 								print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: 쿨다운 중 ({elapsed:.0f}/{cooldown_minutes}분) - 매수 스킵")
 								continue
 
-						curr_vol = volumes[0] if len(volumes) > 0 else 0
-						prev_vol = volumes[1] if len(volumes) > 1 else 0
 						rsi      = self._calc_rsi(prices, rsi_period)
 						rsi_str  = f"{rsi:.1f}" if rsi is not None else "N/A"
 
@@ -198,7 +272,7 @@ class EntryMixin:
 							intraday_high = stk_info.get('high_pric')
 							if intraday_high and intraday_high > 0:
 								if current_price >= intraday_high * 0.98:
-									if curr_vol <= prev_vol * 1.7:
+									if curr_vol <= avg_vol_5 * 1.7:
 										print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {stk_cd}: 고점({intraday_high:.0f}) 근접+거래량 미달 - 매수 스킵")
 										continue
 								high_pct = round((current_price / intraday_high - 1) * 100, 2)
@@ -253,7 +327,7 @@ class EntryMixin:
 							'entry_price':     current_price,
 							'entry_rsi':       round(rsi, 2) if rsi is not None else None,
 							'entry_flu_rt':    meta.get('flu_rt', 0),
-							'entry_vol_ratio': round(curr_vol / prev_vol, 2) if prev_vol > 0 else None,
+							'entry_vol_ratio': round(curr_vol / avg_vol_5, 2) if avg_vol_5 > 0 else None,
 							'entry_score':     round(meta.get('score', 0), 4),
 							'is_foreign':      meta.get('is_foreign', False),
 							'kospi_flu':       kospi_flu,
@@ -270,6 +344,8 @@ class EntryMixin:
 							'market_state':        market_state,
 							'selection_reason':    selection_reason,
 							'high_pct':            high_pct,
+							'entry_vwap':          round(vwap, 2) if vwap is not None else None,
+							'vwap_gap_pct':        round((current_price - vwap) / vwap * 100, 2) if vwap is not None else None,
 						}
 
 						# 돌파 유지 확인
@@ -280,11 +356,11 @@ class EntryMixin:
 						signal_info = (
 							f"📈 [MOMENTUM] 돌파 확인 진입: {stk_cd}\n"
 							f"   현재가: {current_price:.0f} | 직전{breakout_bars}봉 고점: {breakout_high:.0f} ({gap_to_high:+.1f}%)\n"
-							f"   RSI: {rsi_str} | 거래량: {curr_vol:.0f} (직전봉: {prev_vol:.0f}) | 확인: {confirm_secs}초"
+							f"   RSI: {rsi_str} | 거래량: {curr_vol:.0f} (5봉평균: {avg_vol_5:.0f}) | 확인: {confirm_secs}초"
 						)
 						bought = await self._buy_stock(stk_cd, current_price, signal_info=signal_info, snapshot=entry_snapshot, acnt_cache=(my_stocks, aset_evlt_amt_cache))
 
-						# 매수 성공 후 선전종목에서 제거 + 수익률 스냅샷 태스크 시작
+						# 매수 성공 후 선정종목에서 제거 + 수익률 스냅샷 태스크 시작
 						if stk_cd in self.selected_stocks:
 							self.selected_stocks.remove(stk_cd)
 							self.needs_stock_refresh = True
